@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+SRC=$(pwd)
+cd "$AUTOPKGTEST_TMP"
+
+cmake "$SRC/examples/array"
+make
+
+a() { echo "$*"; ./array file "$@" | tee -a log; }
+
+a alloc myArray 4
+a print myArray
+a realloc myArray 7
+a print myArray
+a free myArray
+a print myArray
+
+diff log - <<END
+myArray = [0, 1, 2, 3]
+myArray = [0, 1, 2, 3, 0, 0, 0]
+No array found with name: myArray
+END

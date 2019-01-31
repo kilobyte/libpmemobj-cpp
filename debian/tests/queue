@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+SRC=$(pwd)
+cd "$AUTOPKGTEST_TMP"
+
+cmake "$SRC/examples/queue"
+make
+
+q() { echo "$*"; ./queue file "$@" | tee -a log; }
+
+q push 1
+q push 2
+q show
+q pop
+q pop
+
+diff log - <<END
+1
+2
+1
+2
+END

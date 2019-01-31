@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+TEST="$(basename $0)"
+SRC="$(pwd)"
+cd "$AUTOPKGTEST_TMP"
+
+cmake "$SRC/examples/$TEST"
+make
