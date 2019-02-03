@@ -1,0 +1,8 @@
+--- libpmemobj-cpp-1.5.orig/cmake/libpmemobj++.pc.in
++++ libpmemobj-cpp-1.5/cmake/libpmemobj++.pc.in
+@@ -1,5 +1,4 @@
+ prefix=@CMAKE_INSTALL_PREFIX@
+-libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+ includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+ 
+ Name: libpmemobj++
