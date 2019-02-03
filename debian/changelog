@@ -1,3 +1,12 @@
+libpmemobj-cpp (1.5-2) unstable; urgency=medium
+
+  * Make the -dev package depend on libpmemobj-dev.
+  * Use examples as autopkgtests (compiling all, running some).
+  * Build-Depend on libunwind-dev rather than libunwind8-dev.
+  * Delete include/libpmemobj++/version.hpp on clean.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Sun, 03 Feb 2019 22:24:18 +0100
+
 libpmemobj-cpp (1.5-1) unstable; urgency=medium
 
   * Initial release (Closes: #920036)
