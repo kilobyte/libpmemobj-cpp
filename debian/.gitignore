@@ -1,0 +1,7 @@
+/files
+/debhelper-build-stamp
+/*.debhelper.log
+/*.substvars
+/libpmemobj-cpp-dev/
+/libpmemobj-cpp-doc/
+/tmp/
