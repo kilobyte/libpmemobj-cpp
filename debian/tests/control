@@ -1,14 +1,14 @@
 Tests: array-pc
-Depends: cmake, libpmemobj-cpp-dev, pkg-config
+Depends: g++, make, cmake, libpmemobj-cpp-dev, pkg-config
 
 Tests: pmpong
-Depends: cmake, libpmemobj-cpp-dev, libsfml-dev
+Depends: g++, make, cmake, libpmemobj-cpp-dev, libsfml-dev
 
 Tests: panaconda pman
-Depends: cmake, libpmemobj-cpp-dev, libncurses-dev
+Depends: g++, make, cmake, libpmemobj-cpp-dev, libncurses-dev
 
 #Tests: map_cli
-#Depends: cmake, libpmemobj-cpp-dev
+#Depends: g++, make, cmake, libpmemobj-cpp-dev
 
 Tests: array queue
-Depends: cmake, libpmemobj-cpp-dev
+Depends: g++, make, cmake, libpmemobj-cpp-dev
