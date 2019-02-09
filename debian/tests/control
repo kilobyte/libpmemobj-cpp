@@ -1,6 +1,9 @@
 Tests: array-pc
 Depends: g++, make, cmake, libpmemobj-cpp-dev, pkg-config
 
+Tests: array-clang
+Depends: clang, make, cmake, libpmemobj-cpp-dev, pkg-config
+
 Tests: pmpong
 Depends: g++, make, cmake, libpmemobj-cpp-dev, libsfml-dev
 
