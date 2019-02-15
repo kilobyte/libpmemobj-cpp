@@ -10,8 +10,8 @@ Depends: g++, make, cmake, libpmemobj-cpp-dev, libsfml-dev
 Tests: panaconda pman
 Depends: g++, make, cmake, libpmemobj-cpp-dev, libncurses-dev
 
-#Tests: map_cli
-#Depends: g++, make, cmake, libpmemobj-cpp-dev
+Tests: map_cli
+Depends: g++, make, cmake, libpmemobj-cpp-dev
 
 Tests: array queue
 Depends: g++, make, cmake, libpmemobj-cpp-dev
