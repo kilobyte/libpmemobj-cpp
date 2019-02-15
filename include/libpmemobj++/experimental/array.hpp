@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Intel Corporation
+ * Copyright 2018-2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,12 +41,12 @@
 #include <algorithm>
 #include <functional>
 
-#include "libpmemobj++/detail/common.hpp"
-#include "libpmemobj++/experimental/contiguous_iterator.hpp"
-#include "libpmemobj++/experimental/slice.hpp"
-#include "libpmemobj++/persistent_ptr.hpp"
-#include "libpmemobj++/pext.hpp"
-#include "libpmemobj.h"
+#include <libpmemobj++/detail/common.hpp>
+#include <libpmemobj++/experimental/contiguous_iterator.hpp>
+#include <libpmemobj++/experimental/slice.hpp>
+#include <libpmemobj++/persistent_ptr.hpp>
+#include <libpmemobj++/pext.hpp>
+#include <libpmemobj.h>
 
 namespace pmem
 {
@@ -394,12 +394,12 @@ struct array {
 	}
 
 	/**
-	 * Adds requested range to a transaction and returns slice.
+	 * Returns slice.
 	 *
 	 * @param[in] start start index of requested range.
 	 * @param[in] n number of elements in range.
 	 * @param[in] snapshot_size number of elements which should be
-	 *	snapshotted in a bulk while traversing this slice
+	 *	snapshotted in a bulk while traversing this slice.
 	 *	If provided value is larger or equal to n, entire range is
 	 *	added to a transaction. If value is equal to 0 no snapshotting
 	 *	happens.
@@ -420,10 +420,10 @@ struct array {
 			snapshot_size = n;
 
 		return {range_snapshotting_iterator<T>(_get_data() + start,
-						       _get_data(), N,
+						       _get_data() + start, n,
 						       snapshot_size),
 			range_snapshotting_iterator<T>(_get_data() + start + n,
-						       _get_data(), N,
+						       _get_data() + start, n,
 						       snapshot_size)};
 	}
 
@@ -488,7 +488,7 @@ struct array {
 	}
 
 	/**
-	 * Checks wheter array is empty.
+	 * Checks whether array is empty.
 	 */
 	constexpr bool
 	empty() const noexcept

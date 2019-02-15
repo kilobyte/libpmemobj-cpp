@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Intel Corporation
+ * Copyright 2018-2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -208,7 +208,7 @@ template <typename T>
 struct const_contiguous_iterator;
 
 /**
- * This struct provides comparison operators between const_contigous_iterator
+ * This struct provides comparison operators between const_contiguous_iterator
  * for specified type (as all iterators can be converted to const_iterator this
  * allows to compare all of them).
  */
@@ -317,7 +317,8 @@ struct range_snapshotting_iterator
 	{
 		assert(data <= ptr);
 
-		snapshot_range(ptr);
+		if (snapshot_size > 0)
+			snapshot_range(ptr);
 	}
 
 	/**
@@ -362,6 +363,9 @@ private:
 	void
 	conditional_snapshot_range(pointer ptr, difference_type diff)
 	{
+		if (snapshot_size == 0)
+			return;
+
 		auto new_ptr = ptr + diff;
 
 		/* if new pointer is outside of the array */
