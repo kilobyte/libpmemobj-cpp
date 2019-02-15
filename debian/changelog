@@ -1,3 +1,10 @@
+libpmemobj-cpp (1.5.1~rc4-1) experimental; urgency=medium
+
+  * New upstream pre-release.
+  * Enable the map_cli autopkgtest.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Fri, 15 Feb 2019 16:30:48 +0100
+
 libpmemobj-cpp (1.5-3) unstable; urgency=medium
 
   * Make autopkgtests work on minimal chroots.
