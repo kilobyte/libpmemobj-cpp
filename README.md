@@ -11,11 +11,11 @@ More informations in include/libpmemobj++/README.md
 
 # How to build #
 
-Requirements:
+## Requirements: ##
 - cmake >= 3.3
 - libpmemobj-dev(el) >= 1.4 (http://pmem.io/pmdk/)
 
-### On Linux ###
+## On Linux ##
 
 ```sh
 $ mkdir build
@@ -25,7 +25,7 @@ $ make
 $ make install
 ```
 
-When developing:
+#### When developing: ####
 ```sh
 $ ...
 $ cmake .. -DCMAKE_BUILD_TYPE=Debug -DDEVELOPER_MODE=1
@@ -33,7 +33,7 @@ $ ...
 $ ctest --output-on-failure
 ```
 
-To build packages
+#### To build packages ####
 ```sh
 ...
 cmake .. -DCPACK_GENERATOR="$GEN" -DCMAKE_INSTALL_PREFIX=/usr
@@ -44,9 +44,23 @@ $GEN is type of package generator and can be RPM or DEB
 
 CMAKE_INSTALL_PREFIX must be set to a destination were packages will be installed
 
-### On Windows ###
+#### To use with Valgrind ####
 
-Install libpmemobj via vcpkg
+In order to build your application with libpmemobj-cpp and
+[pmemcheck](https://github.com/pmem/valgrind) / memcheck / helgrind / drd,
+Valgrind instrumentation must be enabled during compilation by adding flags:
+- LIBPMEMOBJ_CPP_VG_PMEMCHECK_ENABLED=1 for pmemcheck instrumentation,
+- LIBPMEMOBJ_CPP_VG_MEMCHECK_ENABLED=1 for memcheck instrumentation,
+- LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED=1 for helgrind instrumentation,
+- LIBPMEMOBJ_CPP_VG_DRD_ENABLED=1 for drd instrumentation, or
+- LIBPMEMOBJ_CPP_VG_ENABLED=1 for all Valgrind instrumentations (including pmemcheck).
+
+If there are no memcheck / helgrind / drd / pmemcheck headers installed on your
+system, build will fail.
+
+## On Windows ##
+
+#### Install libpmemobj via vcpkg ####
 ```sh
 vcpkg install pmdk:x64-windows
 vcpkg integrate install

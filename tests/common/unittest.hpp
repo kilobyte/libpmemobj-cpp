@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Intel Corporation
+ * Copyright 2018-2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,9 +34,13 @@
 #define LIBPMEMOBJ_CPP_UNITTEST_HPP
 
 #include "../test_backtrace.h"
+#include "../valgrind_internal.hpp"
+#include "iterators_support.hpp"
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <iostream>
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -45,6 +49,7 @@
 #define START()                                                                \
 	do {                                                                   \
 		test_register_sighandlers();                                   \
+		set_valgrind_internals();                                      \
 	} while (0)
 
 #ifndef _WIN32
@@ -64,6 +69,12 @@ UT_OUT(const char *format, ...)
 	va_end(args_list);
 
 	fprintf(stdout, "\n");
+}
+
+static inline void
+UT_EXCEPTION(std::exception &e)
+{
+	std::cerr << e.what() << std::endl;
 }
 
 static inline void
@@ -110,6 +121,13 @@ ut_stat(const char *file, int line, const char *func, const char *path,
 	((void)((cnd) ||                                                       \
 		(UT_FATAL("%s:%d %s - assertion failure: %s", __FILE__,        \
 			  __LINE__, __func__, #cnd),                           \
+		 0)))
+
+/* assertion with exception related string printed */
+#define UT_FATALexc(exception)                                                 \
+	((void)(UT_EXCEPTION(exception),                                       \
+		(UT_FATAL("%s:%d %s - assertion failure", __FILE__, __LINE__,  \
+			  __func__),                                           \
 		 0)))
 
 /* assertion with extra info printed if assertion fails at runtime */

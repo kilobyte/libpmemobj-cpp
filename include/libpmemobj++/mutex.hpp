@@ -71,9 +71,9 @@ public:
 	{
 		PMEMobjpool *pop;
 		if ((pop = pmemobj_pool_by_ptr(&plock)) == nullptr)
-			throw lock_error(1, std::generic_category(),
-					 "Persistent mutex not from persistent"
-					 "memory.");
+			throw lock_error(
+				1, std::generic_category(),
+				"Persistent mutex not from persistent memory.");
 
 		pmemobj_mutex_zero(pop, &plock);
 	}
@@ -143,7 +143,10 @@ public:
 	unlock()
 	{
 		PMEMobjpool *pop = pmemobj_pool_by_ptr(this);
-		(void)pmemobj_mutex_unlock(pop, &this->plock);
+		int ret = pmemobj_mutex_unlock(pop, &this->plock);
+		if (ret)
+			throw lock_error(ret, std::system_category(),
+					 "Failed to unlock a mutex.");
 	}
 
 	/**

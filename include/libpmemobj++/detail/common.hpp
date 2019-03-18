@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018, Intel Corporation
+ * Copyright 2016-2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -50,6 +50,57 @@
 #define POBJ_CPP_DEPRECATED
 #endif
 
+#if LIBPMEMOBJ_CPP_VG_ENABLED
+#undef LIBPMEMOBJ_CPP_VG_PMEMCHECK_ENABLED
+#undef LIBPMEMOBJ_CPP_VG_MEMCHECK_ENABLED
+#undef LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
+#undef LIBPMEMOBJ_CPP_VG_DRD_ENABLED
+
+#define LIBPMEMOBJ_CPP_VG_PMEMCHECK_ENABLED 1
+#define LIBPMEMOBJ_CPP_VG_MEMCHECK_ENABLED 1
+#define LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED 1
+#define LIBPMEMOBJ_CPP_VG_DRD_ENABLED 1
+#endif
+
+#if LIBPMEMOBJ_CPP_VG_PMEMCHECK_ENABLED ||                                     \
+	LIBPMEMOBJ_CPP_VG_MEMCHECK_ENABLED ||                                  \
+	LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED || LIBPMEMOBJ_CPP_VG_DRD_ENABLED
+#define LIBPMEMOBJ_CPP_ANY_VG_TOOL_ENABLED 1
+#endif
+
+#if LIBPMEMOBJ_CPP_ANY_VG_TOOL_ENABLED
+#include <valgrind.h>
+#endif
+
+#if LIBPMEMOBJ_CPP_VG_PMEMCHECK_ENABLED
+#include <pmemcheck.h>
+#endif
+
+#if LIBPMEMOBJ_CPP_VG_MEMCHECK_ENABLED
+#include <memcheck.h>
+#endif
+
+#if LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
+#include <helgrind.h>
+#endif
+
+#if LIBPMEMOBJ_CPP_VG_DRD_ENABLED
+#include <drd.h>
+#endif
+
+/*
+ * Workaround for missing "is_trivially_copyable" in gcc < 5.0.
+ * Be aware of a difference between __has_trivial_copy and is_trivially_copyable
+ * e.g. for deleted copy constructors __has_trivial_copy(A) returns 1 in clang
+ * and 0 in gcc. It means that for gcc < 5 IS_TRIVIALLY_COPYABLE is more
+ * restrictive than is_trivially_copyable.
+ */
+#if !defined(__clang__) && defined(__GNUG__) && __GNUC__ < 5
+#define IS_TRIVIALLY_COPYABLE(T) __has_trivial_copy(T)
+#else
+#define IS_TRIVIALLY_COPYABLE(T) std::is_trivially_copyable<T>::value
+#endif
+
 namespace pmem
 {
 
@@ -87,8 +138,8 @@ conditional_add_to_tx(const T *that, std::size_t count = 1)
 		return;
 
 	if (pmemobj_tx_add_range_direct(that, sizeof(*that) * count))
-		throw transaction_error("Could not add object(s) to the"
-					" transaction.");
+		throw transaction_error(
+			"Could not add object(s) to the transaction.");
 }
 
 /*
@@ -99,6 +150,39 @@ uint64_t
 type_num()
 {
 	return typeid(T).hash_code();
+}
+
+/**
+ * Round up to the next lowest power of 2. Overload for uint64_t argument.
+ */
+inline uint64_t
+next_pow_2(uint64_t v)
+{
+	v--;
+	v |= v >> 1;
+	v |= v >> 2;
+	v |= v >> 4;
+	v |= v >> 8;
+	v |= v >> 16;
+	v |= v >> 32;
+	++v;
+	return v + (v == 0);
+}
+
+/**
+ * Round up to the next lowest power of 2. Overload for uint32_t argument.
+ */
+inline uint64_t
+next_pow_2(uint32_t v)
+{
+	v--;
+	v |= v >> 1;
+	v |= v >> 2;
+	v |= v >> 4;
+	v |= v >> 8;
+	v |= v >> 16;
+	++v;
+	return v + (v == 0);
 }
 
 } /* namespace detail */

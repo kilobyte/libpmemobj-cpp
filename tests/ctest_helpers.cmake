@@ -33,11 +33,14 @@
 # ctest_helpers.cmake - helper functions for tests/CMakeLists.txt
 #
 
+set(TEST_ROOT_DIR ${PROJECT_SOURCE_DIR}/tests)
+
 set(GLOBAL_TEST_ARGS
 	-DPERL_EXECUTABLE=${PERL_EXECUTABLE}
 	-DMATCH_SCRIPT=${PROJECT_SOURCE_DIR}/tests/match
 	-DPARENT_DIR=${TEST_DIR}
-	-DTESTS_USE_FORCED_PMEM=${TESTS_USE_FORCED_PMEM})
+	-DTESTS_USE_FORCED_PMEM=${TESTS_USE_FORCED_PMEM}
+	-DTEST_ROOT_DIR=${TEST_ROOT_DIR})
 
 if(TRACE_TESTS)
 	set(GLOBAL_TEST_ARGS ${GLOBAL_TEST_ARGS} --trace-expand)
@@ -100,14 +103,116 @@ CHECK_CXX_SOURCE_COMPILES(
 set(CMAKE_REQUIRED_FLAGS ${SAVED_CMAKE_REQUIRED_FLAGS})
 set(CMAKE_REQUIRED_INCLUDES ${SAVED_CMAKE_REQUIRED_INCLUDES})
 
-if(PKG_CONFIG_FOUND)
-	pkg_check_modules(CURSES QUIET ncurses)
-else()
-	# Specifies that we want FindCurses to find ncurses and not just any
-	# curses library
-	set(CURSES_NEED_NCURSES TRUE)
-	find_package(Curses QUIET)
-endif()
+function(find_pmemcheck)
+	set(ENV{PATH} ${VALGRIND_PREFIX}/bin:$ENV{PATH})
+	execute_process(COMMAND valgrind --tool=pmemcheck --help
+			RESULT_VARIABLE VALGRIND_PMEMCHECK_RET
+			OUTPUT_QUIET
+			ERROR_QUIET)
+	if(VALGRIND_PMEMCHECK_RET)
+		set(VALGRIND_PMEMCHECK_FOUND 0 CACHE INTERNAL "")
+	else()
+		set(VALGRIND_PMEMCHECK_FOUND 1 CACHE INTERNAL "")
+	endif()
+
+	if(VALGRIND_PMEMCHECK_FOUND)
+		execute_process(COMMAND valgrind --tool=pmemcheck true
+				ERROR_VARIABLE PMEMCHECK_OUT
+				OUTPUT_QUIET)
+
+		string(REGEX MATCH ".*pmemcheck-([0-9.]*),.*" PMEMCHECK_OUT "${PMEMCHECK_OUT}")
+		set(PMEMCHECK_VERSION ${CMAKE_MATCH_1} CACHE INTERNAL "")
+	else()
+		message(WARNING "Valgrind pmemcheck NOT found. Pmemcheck tests will not be performed.")
+	endif()
+endfunction()
+
+function(build_pmemobj_cow_check)
+	execute_process(COMMAND ${CMAKE_COMMAND}
+			${PROJECT_SOURCE_DIR}/tests/pmemobj_check_cow/CMakeLists.txt
+			-DLIBPMEMOBJ_INCLUDE_DIRS=${LIBPMEMOBJ_INCLUDE_DIRS}
+			-DLIBPMEMOBJ++_INCLUDE_DIRS=${PROJECT_SOURCE_DIR}/include
+			-DLIBPMEMOBJ_LIBRARIES=${LIBPMEMOBJ_LIBRARIES}
+			-DLIBPMEMOBJ_LIBRARY_DIRS=${LIBPMEMOBJ_LIBRARY_DIRS}
+			-Bpmemobj_check_cow
+			OUTPUT_QUIET)
+
+	execute_process(COMMAND ${CMAKE_COMMAND}
+			--build pmemobj_check_cow
+			OUTPUT_QUIET)
+endfunction()
+
+# pmreorder tests require COW support in libpmemobj because if checker program
+# does any recovery (for example in pool::open) this is not logged and will not
+# be reverted by pmreorder. This results in unexpected state in proceding
+# pmreorder steps (expected state is initial pool, modified only by pmreorder)
+function(check_pmemobj_cow_support pool)
+	build_pmemobj_cow_check()
+	set(ENV{PMEMOBJ_COW} 1)
+
+	execute_process(COMMAND pmemobj_check_cow/pmemobj_check_cow
+			${pool} RESULT_VARIABLE ret)
+	if (ret EQUAL 0)
+		set(PMEMOBJ_COW_SUPPORTED true CACHE INTERNAL "")
+	elseif(ret EQUAL 2)
+		set(PMEMOBJ_COW_SUPPORTED false CACHE INTERNAL "")
+		message(WARNING "Pmemobj does not support PMEMOBJ_COW. Pmreorder tests will not be performed.")
+	else()
+		message(FATAL_ERROR "pmemobj_check_cow failed")
+	endif()
+
+	unset(ENV{PMEMOBJ_COW})
+endfunction()
+
+function(find_packages)
+	if(PKG_CONFIG_FOUND)
+		pkg_check_modules(CURSES QUIET ncurses)
+	else()
+		# Specifies that we want FindCurses to find ncurses and not just any
+		# curses library
+		set(CURSES_NEED_NCURSES TRUE)
+		find_package(Curses QUIET)
+	endif()
+
+	# Look for valgrind only if proper option is enabled.
+	if (TESTS_USE_VALGRIND)
+		if(PKG_CONFIG_FOUND)
+			pkg_check_modules(VALGRIND QUIET valgrind)
+		else()
+			find_package(VALGRIND QUIET)
+		endif()
+	endif()
+
+	if(PKG_CONFIG_FOUND)
+		pkg_check_modules(LIBUNWIND QUIET libunwind)
+	else()
+		find_package(LIBUNWIND QUIET)
+	endif()
+	if(NOT LIBUNWIND_FOUND)
+		message(WARNING "libunwind not found. Stack traces from tests will not be reliable")
+	endif()
+
+	if(NOT WIN32)
+		if(VALGRIND_FOUND)
+			include_directories(${VALGRIND_INCLUDE_DIRS})
+			find_pmemcheck()
+
+			if ((NOT(PMEMCHECK_VERSION LESS 1.0)) AND PMEMCHECK_VERSION LESS 2.0)
+				find_program(PMREORDER names pmreorder HINTS ${LIBPMEMOBJ_PREFIX}/bin)
+				check_pmemobj_cow_support("cow.pool")
+
+				if(PMREORDER AND PMEMOBJ_COW_SUPPORTED)
+					set(ENV{PATH} ${LIBPMEMOBJ_PREFIX}/bin:$ENV{PATH})
+					set(PMREORDER_SUPPORTED true CACHE INTERNAL "pmreorder support")
+				endif()
+			else()
+				message(STATUS "Pmreorder will not be used. Pmemcheck must be installed in version 1.X")
+			endif()
+		elseif(TESTS_USE_VALGRIND)
+			message(WARNING "Valgrind not found. Valgrind tests will not be performed.")
+		endif()
+	endif()
+endfunction()
 
 function(build_test name)
 	# skip posix tests
@@ -122,13 +227,15 @@ function(build_test name)
 	add_check_whitespace(tests-${name} ${srcs})
 
 	add_executable(${name} ${srcs})
-	target_link_libraries(${name} ${LIBPMEMOBJ_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} test_backtrace)
+	target_link_libraries(${name} ${LIBPMEMOBJ_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} test_backtrace valgrind_internal)
 	if(LIBUNWIND_FOUND)
 		target_link_libraries(${name} ${LIBUNWIND_LIBRARIES} ${CMAKE_DL_LIBS})
 	endif()
 	if(WIN32)
 		target_link_libraries(${name} dbghelp)
 	endif()
+	target_compile_definitions(${name} PRIVATE TESTS_LIBPMEMOBJ_VERSION=0x${LIBPMEMOBJ_VERSION_NUM})
+
 	add_dependencies(tests ${name})
 endfunction()
 
@@ -137,7 +244,6 @@ set(vg_tracers memcheck helgrind drd pmemcheck)
 # Configures testcase ${name} ${testcase} using tracer ${tracer}, cmake_script is used to run test
 function(add_testcase name tracer testcase cmake_script)
 	set(executable ${name})
-
 	add_test(NAME ${executable}_${testcase}_${tracer}
 			COMMAND ${CMAKE_COMMAND}
 			${GLOBAL_TEST_ARGS}
@@ -174,7 +280,7 @@ endfunction()
 
 function(skip_test name message)
 	add_test(NAME ${name}_${message}
-		COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/true.cmake)
+		COMMAND ${CMAKE_COMMAND} -P ${TEST_ROOT_DIR}/true.cmake)
 
 	set_tests_properties(${name}_${message} PROPERTIES COST 0)
 endfunction()
@@ -186,12 +292,18 @@ function(add_test_common name tracer testcase cmake_script)
 	endif()
 
 	if (NOT WIN32 AND (NOT VALGRIND_FOUND) AND ${tracer} IN_LIST vg_tracers)
-		skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_OF_MISSING_VALGRIND")
+		# Only print "SKIPPED_*" message when option is enabled
+		if (TESTS_USE_VALGRIND)
+			skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_OF_MISSING_VALGRIND")
+		endif()
 		return()
 	endif()
 
-	if (NOT WIN32 AND VALGRIND_PMEMCHECK_NOT_FOUND AND ${tracer} STREQUAL "pmemcheck")
-		skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_OF_MISSING_PMEMCHECK")
+	if (NOT WIN32 AND (NOT VALGRIND_PMEMCHECK_FOUND) AND ${tracer} STREQUAL "pmemcheck")
+		# Only print "SKIPPED_*" message when option is enabled
+		if (TESTS_USE_VALGRIND)
+			skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_OF_MISSING_PMEMCHECK")
+		endif()
 		return()
 	endif()
 
@@ -213,14 +325,19 @@ function(add_test_common name tracer testcase cmake_script)
 	add_testcase(${name} ${tracer} ${testcase} ${cmake_script})
 endfunction()
 
-function(add_test_generic name tracer)
-	if ("${ARGN}" STREQUAL "")
-		set(testcase "0")
+function(add_test_generic)
+	set(oneValueArgs NAME CASE)
+	set(multiValueArgs TRACERS)
+	cmake_parse_arguments(TEST "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+	if("${TEST_CASE}" STREQUAL "")
+		set(TEST_CASE "0")
+		set(cmake_script ${CMAKE_CURRENT_SOURCE_DIR}/run_default.cmake)
 	else()
-		set(testcase "${ARGN}")
+		set(cmake_script ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}/${TEST_NAME}_${TEST_CASE}.cmake)
 	endif()
 
-	set(cmake_script ${CMAKE_CURRENT_SOURCE_DIR}/${name}/${name}_${testcase}.cmake)
-
-	add_test_common(${name} ${tracer} ${testcase} ${cmake_script})
+	foreach(tracer ${TEST_TRACERS})
+		add_test_common(${TEST_NAME} ${tracer} ${TEST_CASE} ${cmake_script})
+	endforeach()
 endfunction()

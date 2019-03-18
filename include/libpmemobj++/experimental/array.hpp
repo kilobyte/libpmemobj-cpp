@@ -46,6 +46,7 @@
 #include <libpmemobj++/experimental/slice.hpp>
 #include <libpmemobj++/persistent_ptr.hpp>
 #include <libpmemobj++/pext.hpp>
+#include <libpmemobj++/transaction.hpp>
 #include <libpmemobj.h>
 
 namespace pmem
@@ -60,6 +61,9 @@ namespace experimental
 /**
  * pmem::obj::experimental::array - EXPERIMENTAL persistent container
  * with std::array compatible interface.
+ *
+ * pmem::obj::experimental::array can only be stored on pmem. Creating array on
+ * stack will result with "pool_error" exception.
  *
  * All methods which allow write access to specific element will add it to an
  * active transaction.
@@ -97,7 +101,7 @@ struct array {
 	using reference = value_type &;
 	using const_reference = const value_type &;
 	using iterator = basic_contiguous_iterator<T>;
-	using const_iterator = const_contiguous_iterator<T>;
+	using const_iterator = const_pointer;
 	using size_type = std::size_t;
 	using difference_type = std::ptrdiff_t;
 	using reverse_iterator = std::reverse_iterator<iterator>;
@@ -122,32 +126,62 @@ struct array {
 	array(array &&) = default;
 
 	/**
-	 * Copy assignment operator - adds 'this' to a transaction.
+	 * Copy assignment operator - perform assignment from other
+	 * pmem::obj::experimental::array.
+	 *
+	 * This function creates a transaction internally.
 	 *
 	 * @throw transaction_error when adding the object to the
 	 *		transaction failed.
+	 * @throw pmem::pool_error if an object is not in persistent memory.
 	 */
 	array &
 	operator=(const array &other)
 	{
-		detail::conditional_add_to_tx(this);
+		/*
+		 * _get_pool should be called before self assignment check to
+		 * maintain the same behaviour for all arguments.
+		 */
+		auto pop = _get_pool();
 
-		std::copy(other.cbegin(), other.cend(), _get_data());
+		if (this == &other)
+			return *this;
+
+		transaction::run(pop, [&] {
+			detail::conditional_add_to_tx(this);
+			std::copy(other.cbegin(), other.cend(), _get_data());
+		});
+
 		return *this;
 	}
 
 	/**
-	 * Move assignment operator - adds 'this' to a transaction.
+	 * Move assignment operator - perform move assignment from other
+	 * pmem::obj::experimental::array.
+	 *
+	 * This function creates a transaction internally.
 	 *
 	 * @throw transaction_error when adding the object to the
 	 *		transaction failed.
+	 * @throw pmem::pool_error if an object is not in persistent memory.
 	 */
 	array &
 	operator=(array &&other)
 	{
-		detail::conditional_add_to_tx(this);
+		/*
+		 * _get_pool should be called before self assignment check to
+		 * maintain the same behaviour for all arguments.
+		 */
+		auto pop = _get_pool();
 
-		std::copy(other.cbegin(), other.cend(), _get_data());
+		if (this == &other)
+			return *this;
+
+		transaction::run(pop, [&] {
+			detail::conditional_add_to_tx(this);
+			std::copy(other.cbegin(), other.cend(), _get_data());
+		});
+
 		return *this;
 	}
 
@@ -179,6 +213,20 @@ struct array {
 	{
 		if (n >= N)
 			throw std::out_of_range("array::at");
+
+		return _get_data()[n];
+	}
+
+	/**
+	 * Access element at specific index.
+	 *
+	 * @throw std::out_of_range if index is out of bound.
+	 */
+	const_reference
+	const_at(size_type n) const
+	{
+		if (n >= N)
+			throw std::out_of_range("array::const_at");
 
 		return _get_data()[n];
 	}
@@ -225,6 +273,15 @@ struct array {
 	 */
 	const T *
 	data() const noexcept
+	{
+		return _get_data();
+	}
+
+	/**
+	 * Returns const raw pointer to the underlying data.
+	 */
+	const T *
+	cdata() const noexcept
 	{
 		return _get_data();
 	}
@@ -385,12 +442,52 @@ struct array {
 	}
 
 	/**
+	 * Access the first element.
+	 */
+	const_reference
+	cfront() const
+	{
+		return _get_data()[0];
+	}
+
+	/**
 	 * Access the last element.
 	 */
 	const_reference
 	back() const
 	{
 		return _get_data()[size() - 1];
+	}
+
+	/**
+	 * Access the last element.
+	 */
+	const_reference
+	cback() const
+	{
+		return _get_data()[size() - 1];
+	}
+
+	/**
+	 * Returns slice and snapshots requested range.
+	 *
+	 * @param[in] start start index of requested range.
+	 * @param[in] n number of elements in range.
+	 *
+	 * @return slice from start to start + n.
+	 *
+	 * @throw std::out_of_range if any element of the range would be
+	 *	outside of the array.
+	 */
+	slice<pointer>
+	range(size_type start, size_type n)
+	{
+		if (start + n > N)
+			throw std::out_of_range("array::range");
+
+		detail::conditional_add_to_tx(_get_data() + start, n);
+
+		return {_get_data() + start, _get_data() + start + n};
 	}
 
 	/**
@@ -410,8 +507,7 @@ struct array {
 	 *	outside of the array.
 	 */
 	slice<range_snapshotting_iterator<T>>
-	range(size_type start, size_type n,
-	      size_type snapshot_size = std::numeric_limits<size_type>::max())
+	range(size_type start, size_type n, size_type snapshot_size)
 	{
 		if (start + n > N)
 			throw std::out_of_range("array::range");
@@ -497,35 +593,50 @@ struct array {
 	}
 
 	/**
-	 * Adds entire array to a transaction and fills array with
-	 * specified value.
+	 * Fills array with specified value inside internal transaction.
 	 *
 	 * @throw transaction_error when adding the object to the
 	 *		transaction failed.
+	 * @throw pmem::pool_error if an object is not in persistent memory.
 	 */
 	void
 	fill(const_reference value)
 	{
-		detail::conditional_add_to_tx(this);
-		std::fill(_get_data(), _get_data() + size(), value);
+		auto pop = _get_pool();
+
+		transaction::run(pop, [&] {
+			detail::conditional_add_to_tx(this);
+			std::fill(_get_data(), _get_data() + size(), value);
+		});
 	}
 
 	/**
-	 * Swaps content with other array's content.
-	 * Adds both arrays to a transaction.
+	 * Swaps content with other array's content inside internal transaction.
 	 *
 	 * @throw transaction_error when adding the object to the
 	 *		transaction failed.
+	 * @throw pmem::pool_error if an object is not in persistent memory.
 	 */
 	template <std::size_t Size = N>
 	typename std::enable_if<Size != 0>::type
 	swap(array &other)
 	{
-		detail::conditional_add_to_tx(this);
-		detail::conditional_add_to_tx(&other);
+		/*
+		 * _get_pool should be called before self assignment check to
+		 * maintain the same behaviour for all arguments.
+		 */
+		auto pop = _get_pool();
 
-		std::swap_ranges(_get_data(), _get_data() + size(),
-				 other._get_data());
+		if (this == &other)
+			return;
+
+		transaction::run(pop, [&] {
+			detail::conditional_add_to_tx(this);
+			detail::conditional_add_to_tx(&other);
+
+			std::swap_ranges(_get_data(), _get_data() + size(),
+					 other._get_data());
+		});
 	}
 
 	/**
@@ -579,6 +690,21 @@ private:
 	_get_data() const
 	{
 		return reinterpret_cast<const T *>(&this->_data);
+	}
+
+	/**
+	 * Check whether object is on pmem and return pool_base instance.
+	 *
+	 * @throw pmem::pool_error if an object is not in persistent memory.
+	 */
+	pool_base
+	_get_pool() const
+	{
+		auto pop = pmemobj_pool_by_ptr(this);
+		if (pop == nullptr)
+			throw pool_error("Object outside of pmemobj pool.");
+
+		return pool_base(pop);
 	}
 };
 
@@ -694,11 +820,31 @@ begin(pmem::obj::experimental::array<T, N> &a)
 }
 
 /**
+ * Non-member begin.
+ */
+template <typename T, std::size_t N>
+typename pmem::obj::experimental::array<T, N>::const_iterator
+begin(const pmem::obj::experimental::array<T, N> &a)
+{
+	return a.begin();
+}
+
+/**
  * Non-member end.
  */
 template <typename T, std::size_t N>
 typename pmem::obj::experimental::array<T, N>::iterator
 end(pmem::obj::experimental::array<T, N> &a)
+{
+	return a.end();
+}
+
+/**
+ * Non-member end.
+ */
+template <typename T, std::size_t N>
+typename pmem::obj::experimental::array<T, N>::const_iterator
+end(const pmem::obj::experimental::array<T, N> &a)
 {
 	return a.end();
 }
@@ -714,11 +860,31 @@ rbegin(pmem::obj::experimental::array<T, N> &a)
 }
 
 /**
+ * Non-member rbegin.
+ */
+template <typename T, std::size_t N>
+typename pmem::obj::experimental::array<T, N>::const_reverse_iterator
+rbegin(const pmem::obj::experimental::array<T, N> &a)
+{
+	return a.rbegin();
+}
+
+/**
  * Non-member rend.
  */
 template <typename T, std::size_t N>
 typename pmem::obj::experimental::array<T, N>::reverse_iterator
 rend(pmem::obj::experimental::array<T, N> &a)
+{
+	return a.rend();
+}
+
+/**
+ * Non-member rend.
+ */
+template <typename T, std::size_t N>
+typename pmem::obj::experimental::array<T, N>::const_reverse_iterator
+rend(const pmem::obj::experimental::array<T, N> &a)
 {
 	return a.rend();
 }

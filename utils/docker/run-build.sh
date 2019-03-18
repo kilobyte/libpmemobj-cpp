@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright 2016-2018, Intel Corporation
+# Copyright 2016-2019, Intel Corporation
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -44,20 +44,18 @@ function cleanup() {
 	find . -name "*.gcda" -exec rm {} \;
 }
 
-function test_command() {
-	if [ "$COVERAGE" = "1" ]; then
-		if [[ "$2" == "llvm" ]]; then
-			gcovexe="llvm-cov gcov"
-		else
-			gcovexe="gcov"
-		fi
+function upload_codecov() {
+	clang_used=$(cmake -LA -N . | grep CMAKE_CXX_COMPILER | grep clang | wc -c)
 
-		ctest --output-on-failure -E "_memcheck|_drd|_helgrind|_pmemcheck" --timeout 540
-		bash <(curl -s https://codecov.io/bash) -c -F $1 -x "$gcovexe"
-		cleanup
+	if [[ $clang_used > 0 ]]; then
+		gcovexe="llvm-cov gcov"
 	else
-		ctest --output-on-failure --timeout 540
+		gcovexe="gcov"
 	fi
+
+	# the output is redundant in this case, i.e. we rely on parsed report from codecov on github
+	bash <(curl -s https://codecov.io/bash) -c -F $1 -x "$gcovexe" > /dev/null
+	cleanup
 }
 
 function compile_example_standalone() {
@@ -77,32 +75,18 @@ function compile_example_standalone() {
 	cd -
 }
 
+function sudo_password() {
+	echo $USERPASS | sudo -Sk $*
+}
+
+sudo_password mkdir /mnt/pmem
+sudo_password chmod 0777 /mnt/pmem
+sudo_password mount -o size=2G -t tmpfs none /mnt/pmem
+
 cd $WORKDIR
 INSTALL_DIR=/tmp/libpmemobj-cpp
 
 mkdir $INSTALL_DIR
-
-###############################################################################
-# BUILD tests_clang_release llvm
-###############################################################################
-printf "\n$(tput setaf 1)$(tput setab 7)BUILD tests_clang_release llvm START$(tput sgr 0)\n"
-mkdir build
-cd build
-
-PKG_CONFIG_PATH=/opt/pmdk/lib/pkgconfig/ \
-CC=clang CXX=clang++ \
-cmake .. -DDEVELOPER_MODE=1 \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
-			-DTRACE_TESTS=1 \
-			-DCOVERAGE=$COVERAGE
-
-make -j2
-test_command tests_clang_release llvm
-
-cd ..
-rm -r build
-printf "$(tput setaf 1)$(tput setab 7)BUILD tests_clang_release llvm END$(tput sgr 0)\n\n"
 
 ###############################################################################
 # BUILD tests_clang_debug_cpp17 llvm
@@ -118,10 +102,16 @@ cmake .. -DDEVELOPER_MODE=1 \
 			-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
 			-DTRACE_TESTS=1 \
 			-DCOVERAGE=$COVERAGE \
-			-DCXX_STANDARD=17
+			-DCXX_STANDARD=17 \
+			-DTESTS_USE_VALGRIND=0 \
+			-DTEST_DIR=/mnt/pmem \
+			-DTESTS_USE_FORCED_PMEM=1
 
 make -j2
-test_command tests_clang_debug_cpp17 llvm
+ctest --output-on-failure --timeout 540
+if [ "$COVERAGE" = "1" ]; then
+	upload_codecov tests_clang_debug_cpp17
+fi
 
 cd ..
 rm -r build
@@ -140,19 +130,30 @@ cmake .. -DDEVELOPER_MODE=1 \
 			-DCMAKE_BUILD_TYPE=Debug \
 			-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
 			-DTRACE_TESTS=1 \
-			-DCOVERAGE=$COVERAGE
+			-DCOVERAGE=$COVERAGE \
+			-DTESTS_USE_VALGRIND=1 \
+			-DTEST_DIR=/mnt/pmem \
+			-DTESTS_USE_FORCED_PMEM=1
 
 make -j2
-test_command tests_gcc_debug
+if [ "$COVERAGE" = "1" ]; then
+	# valgrind reports error when used with code coverage
+	ctest -E "_memcheck|_drd|_helgrind|_pmemcheck" --timeout 540
+	upload_codecov tests_gcc_debug
+else
+	ctest --output-on-failure --timeout 540
+fi
 
 cd ..
 rm -r build
 printf "$(tput setaf 1)$(tput setab 7)BUILD tests_gcc_debug END$(tput sgr 0)\n\n"
 
 ###############################################################################
-# BUILD tests_gcc_release_cpp17
+# BUILD tests_gcc_release_cpp17_no_valgrind
 ###############################################################################
-printf "\n$(tput setaf 1)$(tput setab 7)BUILD tests_gcc_release_cpp17 START$(tput sgr 0)\n"
+printf "\n$(tput setaf 1)$(tput setab 7)BUILD tests_gcc_release_cpp17_no_valgrind START$(tput sgr 0)\n"
+VALGRIND_PC_PATH=$(find /usr -name "valgrind.pc")
+sudo_password mv $VALGRIND_PC_PATH tmp_valgrind_pc
 mkdir build
 cd build
 
@@ -162,14 +163,22 @@ cmake .. -DCMAKE_BUILD_TYPE=Release \
 			-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
 			-DTRACE_TESTS=1 \
 			-DCOVERAGE=$COVERAGE \
-			-DCXX_STANDARD=17
+			-DCXX_STANDARD=17 \
+			-DTESTS_USE_VALGRIND=1 \
+			-DTEST_DIR=/mnt/pmem \
+			-DBUILD_EXAMPLES=0 \
+			-DTESTS_USE_FORCED_PMEM=1
 
 make -j2
-test_command tests_gcc_release_cpp17
+ctest --output-on-failure --timeout 540
+if [ "$COVERAGE" = "1" ]; then
+	upload_codecov tests_gcc_release_cpp17_no_valgrind
+fi
 
 cd ..
 rm -r build
-printf "$(tput setaf 1)$(tput setab 7)BUILD tests_gcc_release_cpp17 END$(tput sgr 0)\n\n"
+sudo_password mv tmp_valgrind_pc $VALGRIND_PC_PATH
+printf "$(tput setaf 1)$(tput setab 7)BUILD tests_gcc_release_cpp17_no_valgrind END$(tput sgr 0)\n\n"
 
 ###############################################################################
 # BUILD tests_package
@@ -179,18 +188,20 @@ mkdir build
 cd build
 
 if [ $PACKAGE_MANAGER = "deb" ]; then
-	echo $USERPASS | sudo -S dpkg -i /opt/pmdk-pkg/libpmem_*.deb /opt/pmdk-pkg/libpmem-dev_*.deb
-	sudo dpkg -i /opt/pmdk-pkg/libpmemobj_*.deb /opt/pmdk-pkg/libpmemobj-dev_*.deb
+	sudo_password dpkg -i /opt/pmdk-pkg/libpmem_*.deb /opt/pmdk-pkg/libpmem-dev_*.deb
+	sudo_password dpkg -i /opt/pmdk-pkg/libpmemobj_*.deb /opt/pmdk-pkg/libpmemobj-dev_*.deb
 elif [ $PACKAGE_MANAGER = "rpm" ]; then
-	echo $USERPASS | sudo -S rpm -i /opt/pmdk-pkg/libpmem-*.rpm
-	sudo rpm -i /opt/pmdk-pkg/libpmemobj-*.rpm
+	sudo_password rpm -i /opt/pmdk-pkg/libpmem-*.rpm
+	sudo_password rpm -i /opt/pmdk-pkg/libpmemobj-*.rpm
 fi
 
+CC=gcc CXX=g++ \
 cmake .. -DCMAKE_INSTALL_PREFIX=/usr \
+		-DTESTS_USE_VALGRIND=0 \
 		-DCPACK_GENERATOR=$PACKAGE_MANAGER
 
 make -j2
-test_command tests_package
+ctest --output-on-failure --timeout 540
 
 make package
 
@@ -200,9 +211,9 @@ compile_example_standalone map_cli && exit 1
 echo "---------------------------------------------------------------------------"
 
 if [ $PACKAGE_MANAGER = "deb" ]; then
-	sudo dpkg -i libpmemobj++*.deb
+	sudo_password dpkg -i libpmemobj++*.deb
 elif [ $PACKAGE_MANAGER = "rpm" ]; then
-	sudo rpm -i libpmemobj++*.rpm
+	sudo_password rpm -i libpmemobj++*.rpm
 fi
 
 cd ..
@@ -213,9 +224,9 @@ compile_example_standalone map_cli
 
 # Remove pkg-config and force cmake to use find_package while compiling example
 if [ $PACKAGE_MANAGER = "deb" ]; then
-	sudo dpkg -r --force-all pkg-config
+	sudo_password dpkg -r --force-all pkg-config
 elif [ $PACKAGE_MANAGER = "rpm" ]; then
-	sudo rpm -e --nodeps pkgconf
+	sudo_password rpm -e --nodeps pkgconf
 fi
 
 # Verify installed package using find_package

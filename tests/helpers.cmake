@@ -1,5 +1,5 @@
 #
-# Copyright 2018, Intel Corporation
+# Copyright 2018-2019, Intel Corporation
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -38,8 +38,7 @@ function(setup)
     execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${BIN_DIR})
 endfunction()
 
-# Performs cleanup and log matching.
-function(finish)
+function(print_logs)
     message(STATUS "Test ${TEST_NAME}:")
     if(EXISTS ${BIN_DIR}/${TEST_NAME}.out)
         file(READ ${BIN_DIR}/${TEST_NAME}.out OUT)
@@ -49,6 +48,15 @@ function(finish)
         file(READ ${BIN_DIR}/${TEST_NAME}.err ERR)
         message(STATUS "Stderr:\n${ERR}")
     endif()
+    if(EXISTS ${BIN_DIR}/${TEST_NAME}.pmreorder)
+       file(READ ${BIN_DIR}/${TEST_NAME}.pmreorder PMEMREORDER)
+       message(STATUS "Pmreorder:\n${PMEMREORDER}")
+    endif()
+endfunction()
+
+# Performs cleanup and log matching.
+function(finish)
+    print_logs()
 
     if(EXISTS ${SRC_DIR}/${TEST_NAME}.err.match)
         match(${BIN_DIR}/${TEST_NAME}.err ${SRC_DIR}/${TEST_NAME}.err.match)
@@ -78,6 +86,13 @@ function(check_file_exists file)
     endif()
 endfunction()
 
+# Verifies file doesn't exist
+function(check_file_doesnt_exist file)
+    if(EXISTS ${file})
+        message(FATAL_ERROR "${file} exists")
+    endif()
+endfunction()
+
 # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=810295
 # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=780173
 # https://bugs.kde.org/show_bug.cgi?id=303877
@@ -103,11 +118,7 @@ function(valgrind_ignore_warnings valgrind_log)
 mv ${valgrind_log}.tmp ${valgrind_log}")
 endfunction()
 
-function(execute_common output_file name)
-    if(NOT EXISTS ${name})
-        message(FATAL_ERROR "Tests were not found! If not built, run make first.")
-    endif()
-
+function(execute_common expect_success output_file name)
     if(TESTS_USE_FORCED_PMEM)
         set(ENV{PMEM_IS_PMEM_FORCE} 1)
     endif()
@@ -118,20 +129,24 @@ function(execute_common output_file name)
             set(ENV{PMEM_IS_PMEM_FORCE} 0)
         endif()
         set(TRACE valgrind --error-exitcode=99 --tool=pmemcheck)
+        set(ENV{LIBPMEMOBJ_CPP_TRACER_PMEMCHECK} 1)
     elseif(${TRACER} STREQUAL memcheck)
         set(TRACE valgrind --error-exitcode=99 --tool=memcheck --leak-check=full
-           --suppressions=${SRC_DIR}/../ld.supp --suppressions=${SRC_DIR}/../memcheck-stdcpp.supp --suppressions=${SRC_DIR}/../memcheck-libunwind.supp)
+           --suppressions=${TEST_ROOT_DIR}/ld.supp --suppressions=${TEST_ROOT_DIR}/memcheck-stdcpp.supp --suppressions=${TEST_ROOT_DIR}/memcheck-libunwind.supp)
+        set(ENV{LIBPMEMOBJ_CPP_TRACER_MEMCHECK} 1)
     elseif(${TRACER} STREQUAL helgrind)
         set(TRACE valgrind --error-exitcode=99 --tool=helgrind)
+        set(ENV{LIBPMEMOBJ_CPP_TRACER_HELGRIND} 1)
     elseif(${TRACER} STREQUAL drd)
         set(TRACE valgrind --error-exitcode=99 --tool=drd)
+        set(ENV{LIBPMEMOBJ_CPP_TRACER_DRD} 1)
     elseif(${TRACER} MATCHES "none.*")
         # nothing
     else()
         message(FATAL_ERROR "Unknown tracer '${TRACER}'")
     endif()
 
-    if (NOT (${TRACER} STREQUAL kgdb))
+    if (NOT $ENV{CGDB})
         if (NOT WIN32)
             set(TRACE timeout -s SIGALRM -k 200s 180s ${TRACE})
         endif()
@@ -144,16 +159,21 @@ function(execute_common output_file name)
 
     if($ENV{CGDB})
         find_program(KONSOLE NAMES konsole)
+        find_program(GNOME_TERMINAL NAMES gnome-terminal)
         find_program(CGDB NAMES cgdb)
 
-        if (NOT KONSOLE)
-            message(FATAL_ERROR "konsole not found.")
+        if (NOT KONSOLE AND NOT GNOME_TERMINAL)
+            message(FATAL_ERROR "konsole or gnome-terminal not found.")
         elseif (NOT CGDB)
             message(FATAL_ERROR "cdgb not found.")
         elseif(NOT (${TRACER} STREQUAL none))
             message(FATAL_ERROR "Cannot use cgdb with ${TRACER}")
         else()
-            set(cmd konsole -e cgdb --args ${cmd})
+            if (KONSOLE)
+                set(cmd konsole -e cgdb --args ${cmd})
+            elseif(GNOME_TERMINAL)
+                set(cmd gnome-terminal --tab --active --wait -- cgdb --args ${cmd})
+            endif()
         endif()
     endif()
 
@@ -190,18 +210,25 @@ function(execute_common output_file name)
             endif()
         endif()
 
-        if(res)
-            if(EXISTS ${BIN_DIR}/${TEST_NAME}.out)
-                file(READ ${BIN_DIR}/${TEST_NAME}.out OUT)
-                message(STATUS "Stdout:\n${OUT}\nEnd of stdout")
-            endif()
-            if(EXISTS ${BIN_DIR}/${TEST_NAME}.err)
-                file(READ ${BIN_DIR}/${TEST_NAME}.err ERR)
-                message(STATUS "Stderr:\n${ERR}\nEnd of stderr")
-            endif()
-
+        if(res AND expect_success)
+            print_logs()
             message(FATAL_ERROR "${TRACE} ${name} ${ARGN} failed: ${res}")
         endif()
+
+        if(NOT res AND NOT expect_success)
+            print_logs()
+            message(FATAL_ERROR "${TRACE} ${name} ${ARGN} unexpectedly succeeded: ${res}")
+        endif()
+    endif()
+
+    if(${TRACER} STREQUAL pmemcheck)
+        unset(ENV{LIBPMEMOBJ_CPP_TRACER_PMEMCHECK})
+    elseif(${TRACER} STREQUAL memcheck)
+        unset(ENV{LIBPMEMOBJ_CPP_TRACER_MEMCHECK})
+    elseif(${TRACER} STREQUAL helgrind)
+        unset(ENV{LIBPMEMOBJ_CPP_TRACER_HELGRIND})
+    elseif(${TRACER} STREQUAL drd)
+        unset(ENV{LIBPMEMOBJ_CPP_TRACER_DRD})
     endif()
 
     if(TESTS_USE_FORCED_PMEM)
@@ -209,15 +236,25 @@ function(execute_common output_file name)
     endif()
 endfunction()
 
+function(check_target name)
+    if(NOT EXISTS ${name})
+        message(FATAL_ERROR "Tests were not found! If not built, run make first.")
+    endif()
+endfunction()
+
 # Generic command executor which handles failures and prints command output
 # to specified file.
 function(execute_with_output out name)
-    execute_common(${out} ${name} ${ARGN})
+    check_target(${name})
+
+    execute_common(true ${out} ${name} ${ARGN})
 endfunction()
 
 # Generic command executor which handles failures but ignores output.
 function(execute_ignore_output name)
-    execute_common(none ${name} ${ARGN})
+    check_target(${name})
+
+    execute_common(true none ${name} ${ARGN})
 endfunction()
 
 # Executes test command ${name} and verifies its status.
@@ -225,5 +262,75 @@ endfunction()
 # Optional function arguments are passed as consecutive arguments to
 # the command.
 function(execute name)
-    execute_common(${TRACER}_${TESTCASE} ${name} ${ARGN})
+    check_target(${name})
+
+    execute_common(true ${TRACER}_${TESTCASE} ${name} ${ARGN})
+endfunction()
+
+# Executes command ${name} and creates a storelog.
+# First argument is pool file.
+# Second argument is test executable.
+# Optional function arguments are passed as consecutive arguments to
+# the command.
+function(pmreorder_create_store_log pool name)
+    check_target(${name})
+
+    if(NOT (${TRACER} STREQUAL none))
+        message(FATAL_ERROR "Pmreorder test must be run without any tracer.")
+    endif()
+
+    configure_file(${pool} ${pool}.copy COPYONLY)
+
+    set(ENV{PMREORDER_EMIT_LOG} 1)
+
+    if(DEFINED ENV{PMREORDER_STACKTRACE_DEPTH})
+        set(PMREORDER_STACKTRACE_DEPTH $ENV{PMREORDER_STACKTRACE_DEPTH})
+        set(PMREORDER_STACKTRACE "yes")
+    else()
+        set(PMREORDER_STACKTRACE_DEPTH 1)
+        set(PMREORDER_STACKTRACE "no")
+    endif()
+
+    set(cmd valgrind --tool=pmemcheck -q
+        --log-stores=yes
+        --print-summary=no
+        --log-file=${BIN_DIR}/${TEST_NAME}.storelog
+        --log-stores-stacktraces=${PMREORDER_STACKTRACE}
+        --log-stores-stacktraces-depth=${PMREORDER_STACKTRACE_DEPTH}
+        --expect-fence-after-clflush=yes
+        ${name} ${ARGN})
+
+    execute_common(true ${TRACER}_${TESTCASE} ${cmd})
+
+    unset(ENV{PMREORDER_EMIT_LOG})
+
+    file(REMOVE ${pool})
+    configure_file(${pool}.copy ${pool} COPYONLY)
+endfunction()
+
+# Executes pmreorder.
+# First argument is expected result.
+# Second argument is engine type.
+# Third argument is path to configure file.
+# Fourth argument is path to the checker program.
+# Optional function arguments are passed as consecutive arguments to
+# the command.
+function(pmreorder_execute expect_success engine conf_file name)
+    check_target(${name})
+
+    if(NOT (${TRACER} STREQUAL none))
+        message(FATAL_ERROR "Pmreorder test must be run without any tracer.")
+    endif()
+
+    set(ENV{PMEMOBJ_COW} 1)
+
+    set(cmd pmreorder -l ${BIN_DIR}/${TEST_NAME}.storelog
+                    -o ${BIN_DIR}/${TEST_NAME}.pmreorder
+                    -r ${engine}
+                    -p "${name} ${ARGN}"
+                    -x ${conf_file})
+
+    execute_common(${expect_success} ${TRACER}_${TESTCASE} ${cmd})
+
+    unset(ENV{PMEMOBJ_COW})
 endfunction()

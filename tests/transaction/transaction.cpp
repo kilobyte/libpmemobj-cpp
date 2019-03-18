@@ -37,6 +37,7 @@
 #include "unittest.hpp"
 
 #include <libpmemobj++/make_persistent.hpp>
+#include <libpmemobj++/make_persistent_array_atomic.hpp>
 #include <libpmemobj++/mutex.hpp>
 #include <libpmemobj++/p.hpp>
 #include <libpmemobj++/persistent_ptr.hpp>
@@ -71,6 +72,7 @@ uncaught_exceptions() noexcept
 #include <libpmemobj++/transaction.hpp>
 
 #define LAYOUT "cpp"
+#define POOL_SZIE PMEMOBJ_MIN_POOL
 
 namespace nvobj = pmem::obj;
 
@@ -86,6 +88,7 @@ struct root {
 	nvobj::persistent_ptr<foo> pfoo;
 	nvobj::persistent_ptr<nvobj::p<int>> parr;
 	nvobj::mutex mtx;
+	nvobj::shared_mutex shared_mutex;
 };
 
 void
@@ -207,6 +210,25 @@ test_tx_no_throw_no_abort(nvobj::pool<root> &pop)
 	UT_ASSERT(rootp->parr == nullptr);
 }
 
+static bool
+test_shared_mutex_self_deadlock()
+{
+	/*
+	 * Starting transaction with already taken shared_lock should fail.
+	 *
+	 * However:
+	 *  - pmemobj prior to 1.5.1 has a bug (see pmem/pmdk#3536) which
+	 *    corrupts mutex state by unlocking it when it shouldn't
+	 *  - shared_mutexes (rwlocks), as implemented by pmemobj, do not detect
+	 *    self-deadlocks on Windows
+	 */
+#if TESTS_LIBPMEMOBJ_VERSION < 0x010501 || defined(_WIN32)
+	return false;
+#else
+	return true;
+#endif
+}
+
 /*
  * test_tx_throw_no_abort -- test transaction with exceptions and no aborts
  */
@@ -277,6 +299,22 @@ test_tx_throw_no_abort(nvobj::pool<root> &pop)
 	UT_ASSERT(exception_thrown);
 	UT_ASSERT(rootp->pfoo == nullptr);
 	UT_ASSERT(rootp->parr == nullptr);
+
+	if (test_shared_mutex_self_deadlock()) {
+		exception_thrown = false;
+		rootp->shared_mutex.lock();
+		try {
+			nvobj::transaction::run(pop, [&]() {},
+						rootp->shared_mutex);
+		} catch (pmem::transaction_error &) {
+			exception_thrown = true;
+		} catch (...) {
+			UT_ASSERT(0);
+		}
+
+		UT_ASSERT(exception_thrown);
+		rootp->shared_mutex.unlock();
+	}
 }
 
 /*
@@ -505,6 +543,33 @@ test_tx_throw_no_abort_scope(nvobj::pool<root> &pop)
 		UT_ASSERT(!exception_thrown);
 	UT_ASSERT(rootp->pfoo == nullptr);
 	UT_ASSERT(rootp->parr == nullptr);
+
+	/* commiting non-existent transaction should fail with an exception */
+	exception_thrown = false;
+	try {
+		nvobj::transaction::commit();
+	} catch (pmem::transaction_error &te) {
+		exception_thrown = true;
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+	UT_ASSERT(exception_thrown);
+
+	if (test_shared_mutex_self_deadlock()) {
+		exception_thrown = false;
+		rootp->shared_mutex.lock();
+		try {
+			T t(pop, rootp->shared_mutex);
+		} catch (pmem::transaction_error &) {
+			exception_thrown = true;
+		} catch (...) {
+			UT_ASSERT(0);
+		}
+
+		UT_ASSERTeq(nvobj::transaction::error(), EINVAL);
+		UT_ASSERT(exception_thrown);
+		rootp->shared_mutex.unlock();
+	}
 }
 
 /*
@@ -610,7 +675,6 @@ test_tx_automatic_destructor_throw(nvobj::pool<root> &pop)
 
 	UT_ASSERTeq(nvobj::transaction::error(), ECANCELED);
 	UT_ASSERT(exception_thrown);
-	exception_thrown = false;
 	UT_ASSERT(rootp->pfoo == nullptr);
 	UT_ASSERT(rootp->parr == nullptr);
 
@@ -628,7 +692,6 @@ test_tx_automatic_destructor_throw(nvobj::pool<root> &pop)
 
 	UT_ASSERTeq(nvobj::transaction::error(), ECANCELED);
 	UT_ASSERT(exception_thrown);
-	exception_thrown = false;
 	UT_ASSERT(rootp->pfoo == nullptr);
 	UT_ASSERT(rootp->parr == nullptr);
 
@@ -721,6 +784,76 @@ test_tx_automatic_destructor_throw(nvobj::pool<root> &pop)
 	UT_ASSERT(rootp->pfoo == nullptr);
 	UT_ASSERT(rootp->parr == nullptr);
 }
+
+/*
+ * test_tx_snapshot -- 1) Check if transaction_error is thrown, when snapshot()
+ * is not called from transaction.
+ * 2) Check if transaction_error is thrown, when internal call to
+ * pmemobj_tx_add_range_direct() failed.
+ * 3) Check if assigning value to pmem object is valid under pmemcheck when
+ * object was snapshotted beforehand.
+ * 4) Check if snapshotted value was rolled back in case of transacion abort.
+ */
+void
+test_tx_snapshot(nvobj::pool<root> &pop)
+{
+	nvobj::persistent_ptr<char[]> parr;
+	try {
+		nvobj::make_persistent_atomic<char[]>(pop, parr, 5);
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+
+	bool exception_thrown = false;
+	try {
+		nvobj::transaction::snapshot<char>(parr.get(), 5);
+		UT_ASSERT(0);
+	} catch (pmem::transaction_error &) {
+		exception_thrown = true;
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+	UT_ASSERT(exception_thrown);
+
+	exception_thrown = false;
+	try {
+		nvobj::transaction::run(pop, [&] {
+			nvobj::transaction::snapshot<char>(parr.get(),
+							   POOL_SZIE);
+		});
+		UT_ASSERT(0);
+	} catch (pmem::transaction_error &) {
+		exception_thrown = true;
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+	UT_ASSERT(exception_thrown);
+
+	try {
+		nvobj::transaction::run(pop, [&] {
+			nvobj::transaction::snapshot<char>(parr.get(), 5);
+			for (int i = 0; i < 5; ++i)
+				parr[i] = 1; /* no pmemcheck errors */
+		});
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+
+	try {
+		nvobj::transaction::run(pop, [&] {
+			nvobj::transaction::snapshot(parr.get(), 5);
+			for (int i = 0; i < 5; ++i)
+				parr[i] = 2;
+			nvobj::transaction::abort(-1);
+		});
+		UT_ASSERT(0);
+	} catch (pmem::manual_tx_abort &) {
+		for (int i = 0; i < 5; ++i)
+			UT_ASSERT(parr[i] == 1); /* check rolled back values */
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+}
 }
 
 int
@@ -735,7 +868,7 @@ main(int argc, char *argv[])
 
 	nvobj::pool<root> pop;
 	try {
-		pop = nvobj::pool<root>::create(path, LAYOUT, PMEMOBJ_MIN_POOL,
+		pop = nvobj::pool<root>::create(path, LAYOUT, POOL_SZIE,
 						S_IWUSR | S_IRUSR);
 	} catch (...) {
 		UT_FATAL("!pmemobj_create: %s", path);
@@ -755,6 +888,9 @@ main(int argc, char *argv[])
 	test_tx_throw_no_abort_scope<nvobj::transaction::automatic>(pop);
 	test_tx_no_throw_abort_scope<nvobj::transaction::automatic>(pop);
 	test_tx_automatic_destructor_throw(pop);
+
+	test_tx_snapshot(pop);
+
 	pop.close();
 
 	return 0;

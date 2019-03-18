@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018, Intel Corporation
+ * Copyright 2016-2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,8 +38,8 @@
 #ifndef LIBPMEMOBJ_CPP_MAKE_ATOMIC_IMPL_HPP
 #define LIBPMEMOBJ_CPP_MAKE_ATOMIC_IMPL_HPP
 
+#include <cstddef>
 #include <new>
-#include <stddef.h>
 
 #include <libpmemobj++/detail/array_traits.hpp>
 #include <libpmemobj++/detail/integer_sequence.hpp>
@@ -52,34 +52,18 @@ namespace detail
 {
 
 /*
- * Calls the objects constructor.
- *
- * Unpacks the tuple to get constructor's parameters.
- */
-template <typename T, size_t... Indices, typename... Args>
-void
-create_object(void *ptr, index_sequence<Indices...>, std::tuple<Args...> &tuple)
-{
-	new (ptr) T(std::get<Indices>(tuple)...);
-}
-
-/*
  * C-style function called by the allocator.
  *
  * The arg is a tuple containing constructor parameters.
  */
-template <typename T, typename... Args>
+template <typename T, typename Tuple, typename... Args>
 int
 obj_constructor(PMEMobjpool *pop, void *ptr, void *arg)
 {
-	auto *arg_pack = static_cast<std::tuple<Args &...> *>(arg);
+	auto ret = c_style_construct<T, Tuple, Args...>(ptr, arg);
 
-	typedef typename make_index_sequence<Args...>::type index;
-	try {
-		create_object<T>(ptr, index(), *arg_pack);
-	} catch (...) {
+	if (ret != 0)
 		return -1;
-	}
 
 	pmemobj_persist(pop, ptr, sizeof(T));
 

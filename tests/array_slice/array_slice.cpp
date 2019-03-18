@@ -96,6 +96,34 @@ struct TestSuccess {
 		}
 
 		try {
+			/* Out of range */
+			c.range(5, 2, 1);
+			UT_ASSERT(0);
+		} catch (...) {
+		}
+
+		try {
+			/* Out of range */
+			c.range(5, 2, 999);
+			UT_ASSERT(0);
+		} catch (...) {
+		}
+
+		try {
+			/* Out of range */
+			c.range(5, 2, std::numeric_limits<std::size_t>::max());
+			UT_ASSERT(0);
+		} catch (...) {
+		}
+
+		try {
+			/* Out of range */
+			static_cast<const C &>(c).range(5, 2);
+			UT_ASSERT(0);
+		} catch (...) {
+		}
+
+		try {
 			c.range(4, 2);
 		} catch (...) {
 			UT_ASSERT(0);
@@ -103,6 +131,30 @@ struct TestSuccess {
 
 		try {
 			c.crange(4, 2);
+		} catch (...) {
+			UT_ASSERT(0);
+		}
+
+		try {
+			c.range(4, 2, 1);
+		} catch (...) {
+			UT_ASSERT(0);
+		}
+
+		try {
+			c.range(4, 2, 999);
+		} catch (...) {
+			UT_ASSERT(0);
+		}
+
+		try {
+			c.range(4, 2, std::numeric_limits<std::size_t>::max());
+		} catch (...) {
+			UT_ASSERT(0);
+		}
+
+		try {
+			static_cast<const C &>(c).range(4, 2);
 		} catch (...) {
 			UT_ASSERT(0);
 		}
@@ -119,12 +171,38 @@ struct TestSuccess {
 			UT_ASSERT(0);
 		} catch (...) {
 		}
+
+		{
+			auto ptr_s = c.range(0, 0);
+			auto it_s = c.range(0, 0, 0);
+			UT_ASSERT(ptr_s.size() == 0);
+			UT_ASSERT(ptr_s.size() == it_s.size());
+			UT_ASSERT(ptr_s.begin() == it_s.begin());
+			UT_ASSERT(ptr_s.end() == it_s.end());
+		}
+		{
+			auto ptr_s = c.range(0, 5);
+			auto it_s = c.range(0, 5, 1);
+			UT_ASSERT(ptr_s.size() == 5);
+			UT_ASSERT(ptr_s.size() == it_s.size());
+			UT_ASSERT(ptr_s.begin() == it_s.begin());
+			UT_ASSERT(ptr_s.end() == it_s.end());
+		}
+		{
+			auto ptr_s = c.range(1, 3);
+			auto it_s = c.range(1, 3, 3);
+			UT_ASSERT(ptr_s.size() == 3);
+			UT_ASSERT(ptr_s.size() == it_s.size());
+			UT_ASSERT(ptr_s.begin() == it_s.begin());
+			UT_ASSERT(ptr_s.end() == it_s.end());
+		}
 	}
 
 	void
 	run_reverse()
 	{
 		auto slice = c.range(1, 5, 2);
+		UT_ASSERT(slice.size() == 5);
 
 		int i = 0;
 		for (auto it = slice.rbegin(); it != slice.rend(); it++, i++)
@@ -148,6 +226,7 @@ struct TestAbort {
 		/* slice from 2 to 12 with snapshot_size = 3
 		 * snapshotting ranges are: <2,4>, <5,7>, <8,10>, <11> */
 		auto slice = c.range(2, 10, 3);
+		UT_ASSERT(slice.size() == 10);
 
 		auto it = slice.begin();
 
@@ -186,6 +265,17 @@ struct TestAbort {
 			C expected = {{1, 2, 99, 4, 5, 0, 0, 0, 9, 100, 11, 102,
 				       101, 14, 15}};
 			UT_ASSERT(c == expected);
+
+			auto ptr_slice = c2.range(1, 4);
+			for (auto &e : ptr_slice)
+				e = 1;
+
+			c2._data[0] = 0;
+			c2._data[5] = 0;
+
+			C expected2 = {{0, 1, 1, 1, 1, 0, 7, 8, 9, 10, 11, 12,
+					13, 14, 15}};
+			UT_ASSERT(c2 == expected2);
 		}
 	}
 
@@ -200,16 +290,22 @@ struct TestAbort {
 
 	using C = pmemobj_exp::array<double, 15>;
 	C c = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}};
+	C c2 = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}};
 };
 
 struct TestRanges {
+	template <std::size_t snapshot_size>
 	void
 	run()
 	{
 		int ex1[] = {1, 1, 1, 1, 1};
 		int ex2[] = {2, 2, 2, 2, 2};
 
-		auto slice = c.range(0, 7, 1);
+		auto slice = c.range(0, 7, snapshot_size);
+		auto cslice = static_cast<const C &>(c).range(0, 7);
+
+		UT_ASSERT(slice.begin() == cslice.begin());
+		UT_ASSERT(slice.end() == cslice.end());
 
 		for (auto &e : slice) {
 			std::fill(e.data, e.data + 5, 1);
@@ -226,6 +322,13 @@ struct TestRanges {
 		for (auto it = c.cbegin() + 7; it < c.cend(); it++) {
 			UT_ASSERT(std::equal(it->data, it->data + 5, ex2));
 		}
+
+		auto ptr_slice = c2.range(0, 5);
+		for (auto &e : ptr_slice)
+			std::fill(e.data, e.data + 5, 1);
+
+		for (auto it = c2.cbegin(); it < c2.cbegin() + 5; it++)
+			UT_ASSERT(std::equal(it->data, it->data + 5, ex1));
 	}
 
 	struct DataStruct {
@@ -234,6 +337,7 @@ struct TestRanges {
 
 	using C = pmemobj_exp::array<DataStruct, 15>;
 	C c;
+	C c2;
 };
 
 struct TestAt {
@@ -348,6 +452,12 @@ run_test_abort_with_revert(pmem::obj::pool<struct root> &pop)
 			TestAbort::C expected = {{1, 2, 3, 4, 5, 0, 0, 0, 9, 10,
 						  11, 12, 101, 14, 15}};
 			UT_ASSERT(r->ptr_a->c == expected);
+
+			/* Ensure that changes not added to the transaction were
+			 * not reverted */
+			TestAbort::C expected2 = {{0, 2, 3, 4, 5, 0, 7, 8, 9,
+						   10, 11, 12, 13, 14, 15}};
+			UT_ASSERT(r->ptr_a->c2 == expected2);
 		}
 	} catch (...) {
 		UT_ASSERT(0);
@@ -397,7 +507,44 @@ run_test_ranges(pmem::obj::pool<struct root> &pop)
 
 	try {
 		pmem::obj::transaction::run(pop, [&] {
-			r->ptr_r->run();
+			r->ptr_r->run<1>();
+
+			pmem::obj::delete_persistent<TestRanges>(r->ptr_r);
+		});
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+
+	try {
+		pmem::obj::transaction::run(pop, [&] {
+			r->ptr_r = pmem::obj::make_persistent<TestRanges>();
+		});
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+
+	try {
+		pmem::obj::transaction::run(pop, [&] {
+			r->ptr_r->run<
+				std::numeric_limits<std::size_t>::max()>();
+
+			pmem::obj::delete_persistent<TestRanges>(r->ptr_r);
+		});
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+
+	try {
+		pmem::obj::transaction::run(pop, [&] {
+			r->ptr_r = pmem::obj::make_persistent<TestRanges>();
+		});
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+
+	try {
+		pmem::obj::transaction::run(pop, [&] {
+			r->ptr_r->run<999>();
 
 			pmem::obj::delete_persistent<TestRanges>(r->ptr_r);
 		});

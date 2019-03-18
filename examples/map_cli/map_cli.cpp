@@ -32,11 +32,11 @@
 
 #include "ctree_map_persistent.hpp"
 #include "ctree_map_transient.hpp"
+#include <cstring>
 #include <iostream>
 #include <libpmemobj++/pool.hpp>
 #include <libpmemobj_cpp_examples_common.hpp>
 #include <memory>
-#include <string.h>
 
 namespace
 {
@@ -208,12 +208,10 @@ int
 main(int argc, char *argv[])
 {
 	if (argc < 4) {
-		std::cerr << "usage: " << argv[0]
-			  << " file-name <persistent|volatile> "
-			     "[insert <key value>|insert_new "
-			     "<key value>|get <key>|remove <key> | remove_free "
-			     "<key>]"
-			  << std::endl;
+		std::cerr
+			<< "usage: " << argv[0]
+			<< " file-name <persistent|volatile> [insert <key value>|insert_new <key value>|get <key>|remove <key> | remove_free <key>]"
+			<< std::endl;
 		return 1;
 	}
 

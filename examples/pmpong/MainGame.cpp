@@ -1,5 +1,5 @@
 /*
- * Copyright 2017, Intel Corporation
+ * Copyright 2017-2018, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,10 +33,9 @@
 #include "Pool.hpp"
 #include <SFML/Graphics.hpp>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 int
 main(int argc, char *argv[])
@@ -47,8 +46,7 @@ main(int argc, char *argv[])
 		mode = argv[2];
 	}
 	if (argc < 2 || argc > 3 || (argc == 3 && mode != "-s")) {
-		std::cout << "Usage: ./pmpong <game_session_file> "
-			     "[options]"
+		std::cout << "Usage: ./pmpong <game_session_file> [options]"
 			  << std::endl
 			  << "Options: " << std::endl
 			  << "-s, simulates game between 2 AI players"

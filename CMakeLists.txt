@@ -33,8 +33,8 @@ cmake_minimum_required(VERSION 3.3)
 project(libpmemobj-cpp C CXX)
 
 set(VERSION_MAJOR 1)
-set(VERSION_MINOR 5)
-set(VERSION_PATCH 1)
+set(VERSION_MINOR 6)
+set(VERSION_PATCH 0)
 #set(VERSION_PRERELEASE rc1)
 
 set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR})
@@ -72,6 +72,11 @@ option(DEVELOPER_MODE "enable developer checks" OFF)
 option(TRACE_TESTS "more verbose test outputs" OFF)
 option(USE_ASAN "enable AddressSanitizer (debugging)" OFF)
 option(USE_UBSAN "enable UndefinedBehaviorSanitizer (debugging)" OFF)
+option(TESTS_USE_FORCED_PMEM "run tests with PMEM_IS_PMEM_FORCE=1" OFF)
+option(TESTS_USE_VALGRIND "enable tests with valgrind (if found)" ON)
+option(ENABLE_ARRAY "enable installation and testing of pmem::obj::experimental::array" ON)
+option(ENABLE_VECTOR "enable installation and testing of pmem::obj::experimental::vector" ON)
+option(ENABLE_STRING "enable installation and testing of pmem::obj::experimental::string (depends on ENABLE_VECTOR)" ON)
 
 # Required for MSVC to correctly define __cplusplus
 add_flag("/Zc:__cplusplus")
@@ -121,21 +126,27 @@ if(BUILD_TESTS OR BUILD_EXAMPLES)
 	else()
 		find_package(LIBPMEMOBJ REQUIRED 1.4)
 	endif()
-endif()
 
-if(PKG_CONFIG_FOUND)
-	pkg_check_modules(VALGRIND QUIET valgrind)
-else()
-	find_package(VALGRIND QUIET)
-endif()
+	if (LIBPMEMOBJ_VERSION)
+		string(REGEX REPLACE "\\+git.*" "" LIBPMEMOBJ_VERSION_SHORT ${LIBPMEMOBJ_VERSION})
+		string(REGEX REPLACE "-rc.*" "" LIBPMEMOBJ_VERSION_SHORT ${LIBPMEMOBJ_VERSION_SHORT})
+		string(REPLACE "." ";" VERSION_LIST ${LIBPMEMOBJ_VERSION_SHORT})
+		list(GET VERSION_LIST 0 LIBPMEMOBJ_VERSION_MAJOR)
+		list(GET VERSION_LIST 1 LIBPMEMOBJ_VERSION_MINOR)
+		list(LENGTH VERSION_LIST OBJ_VER_COMPS)
+		if (${OBJ_VER_COMPS} LESS 3)
+			list(APPEND VERSION_LIST "0")
+		endif()
+		list(GET VERSION_LIST 2 LIBPMEMOBJ_VERSION_PATCH)
+	else()
+		message(WARNING "cannot detect libpmemobj version, some tests will be skipped")
+		# assume 0.0.0
+		set(LIBPMEMOBJ_VERSION_MAJOR 0)
+		set(LIBPMEMOBJ_VERSION_MINOR 0)
+		set(LIBPMEMOBJ_VERSION_PATCH 0)
+	endif()
 
-if(PKG_CONFIG_FOUND)
-	pkg_check_modules(LIBUNWIND QUIET libunwind)
-else()
-	find_package(LIBUNWIND QUIET)
-endif()
-if(NOT LIBUNWIND_FOUND)
-	message(WARNING "libunwind not found. Stack traces from tests will not be reliable")
+	math(EXPR LIBPMEMOBJ_VERSION_NUM "${LIBPMEMOBJ_VERSION_PATCH} + ${LIBPMEMOBJ_VERSION_MINOR} * 100 + ${LIBPMEMOBJ_VERSION_MAJOR} * 10000")
 endif()
 
 add_executable(check_license EXCLUDE_FROM_ALL utils/check_license/check-license.c)
@@ -164,9 +175,16 @@ add_custom_target(tests)
 
 if(DEVELOPER_MODE)
 	add_flag(-Werror) # XXX: WX for windows
-	find_program(CLANG_FORMAT NAMES clang-format-6.0)
-	if (NOT CLANG_FORMAT)
-		message(WARNING "clang-format not found - C++ sources will not be checked (needed version: 6.0)")
+	find_program(CLANG_FORMAT NAMES clang-format clang-format-6.0)
+	set(CLANG_FORMAT_REQUIRED "6.0")
+	if(CLANG_FORMAT)
+		get_program_version(${CLANG_FORMAT} CLANG_FORMAT_VERSION)
+		if(NOT (CLANG_FORMAT_VERSION VERSION_EQUAL CLANG_FORMAT_REQUIRED))
+			message(WARNING "required clang-format version is ${CLANG_FORMAT_REQUIRED}")
+			unset(CLANG_FORMAT)
+		endif()
+	else()
+		message(WARNING "clang-format not found - C++ sources will not be checked (needed version: ${CLANG_FORMAT_REQUIRED})")
 	endif()
 
 	execute_process(COMMAND ${PERL_EXECUTABLE} -MText::Diff -e ""
@@ -208,7 +226,31 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/version.hpp.in
 		${CMAKE_SOURCE_DIR}/include/libpmemobj++/version.hpp @ONLY)
 
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-	FILES_MATCHING PATTERN "*.hpp")
+	FILES_MATCHING PATTERN "*.hpp"
+	PATTERN "array.hpp" EXCLUDE
+	PATTERN "vector.hpp" EXCLUDE
+	PATTERN "string.hpp" EXCLUDE
+	PATTERN "basic_string.hpp" EXCLUDE
+	PATTERN "contiguous_iterator.hpp" EXCLUDE
+	PATTERN "slice.hpp" EXCLUDE)
+
+if (ENABLE_ARRAY)
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "array.hpp")
+endif()
+
+if (ENABLE_VECTOR)
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "vector.hpp")
+endif()
+
+if (ENABLE_STRING)
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "basic_string.hpp")
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "string.hpp")
+endif()
+
+if (ENABLE_ARRAY OR ENABLE_VECTOR OR ENABLE_STRING)
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "contiguous_iterator.hpp")
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "slice.hpp")
+endif()
 
 install(DIRECTORY examples/ DESTINATION ${CMAKE_INSTALL_DOCDIR}/examples
 	FILES_MATCHING PATTERN "*.*pp")
@@ -239,22 +281,6 @@ write_basic_package_version_file(libpmemobj++-config-version.cmake
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libpmemobj++-config.cmake ${CMAKE_CURRENT_BINARY_DIR}/libpmemobj++-config-version.cmake
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/libpmemobj++/cmake)
-
-if(NOT WIN32)
-    if(VALGRIND_FOUND)
-	    set(ENV{PATH} ${VALGRIND_PREFIX}/bin:$ENV{PATH})
-	    execute_process(COMMAND valgrind --tool=pmemcheck --help
-			    RESULT_VARIABLE VALGRIND_PMEMCHECK_NOT_FOUND
-			    OUTPUT_QUIET
-			    ERROR_QUIET)
-	    if(VALGRIND_PMEMCHECK_NOT_FOUND)
-		    message(WARNING "Valgrind pmemcheck NOT found. Pmemcheck tests will not be performed.")
-	    endif()
-    else()
-	    message(WARNING "Valgrind not found. Valgrind tests will not be performed.")
-    endif()
-endif()
-
 
 if(NOT MSVC_VERSION)
 	set(SAVED_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
@@ -287,10 +313,30 @@ if(NOT MSVC_VERSION)
 			return 0;
 		}"
 		NO_GCC_AGGREGATE_INITIALIZATION_BUG)
+
+	# Check for issues related to agregate initialization in new expression.
+	# Following code will fail for LLVM compiler https://bugs.llvm.org/show_bug.cgi?id=39988
+	set(CMAKE_REQUIRED_FLAGS "--std=c++11 -Wno-error")
+	CHECK_CXX_SOURCE_COMPILES(
+		"template<typename T>
+		struct A {
+			 A() {};
+			~A() {};
+		};
+		struct B {
+			A<int> a;
+			A<int> b;
+		};
+		int main() {
+			new B{};
+			return 0;
+		}"
+		NO_CLANG_BRACE_INITIALIZATION_NEWEXPR_BUG)
 	set(CMAKE_REQUIRED_FLAGS ${SAVED_CMAKE_REQUIRED_FLAGS})
 else()
 	set(NO_GCC_VARIADIC_TEMPLATE_BUG TRUE)
 	set(NO_GCC_AGGREGATE_INITIALIZATION_BUG TRUE)
+	set(NO_CLANG_BRACE_INITIALIZATION_NEWEXPR_BUG TRUE)
 endif()
 
 include_directories(include)

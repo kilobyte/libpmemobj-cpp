@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018, Intel Corporation
+ * Copyright 2016-2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -116,8 +116,8 @@ public:
 
 			if (err) {
 				pmemobj_tx_abort(EINVAL);
-				throw transaction_error("failed to"
-							" add lock");
+				(void)pmemobj_tx_end();
+				throw transaction_error("failed to add lock");
 			}
 		}
 
@@ -325,8 +325,7 @@ public:
 	abort(int err)
 	{
 		if (pmemobj_tx_stage() != TX_STAGE_WORK)
-			throw transaction_error("wrong stage for"
-						" abort");
+			throw transaction_error("wrong stage for abort");
 
 		pmemobj_tx_abort(err);
 		throw manual_tx_abort("explicit abort " + std::to_string(err));
@@ -346,8 +345,7 @@ public:
 	commit()
 	{
 		if (pmemobj_tx_stage() != TX_STAGE_WORK)
-			throw transaction_error("wrong stage for"
-						" commit");
+			throw transaction_error("wrong stage for commit");
 
 		pmemobj_tx_commit();
 	}
@@ -408,8 +406,8 @@ public:
 		if (err) {
 			pmemobj_tx_abort(err);
 			(void)pmemobj_tx_end();
-			throw transaction_error("failed to add a lock to the"
-						" transaction");
+			throw transaction_error(
+				"failed to add a lock to the transaction");
 		}
 
 		try {
@@ -435,8 +433,8 @@ public:
 			(void)pmemobj_tx_end();
 			throw transaction_error("transaction aborted");
 		} else if (stage == TX_STAGE_NONE) {
-			throw transaction_error("transaction ended"
-						"prematurely");
+			throw transaction_error(
+				"transaction ended prematurely");
 		}
 
 		(void)pmemobj_tx_end();
@@ -447,6 +445,40 @@ public:
 	exec_tx(pool_base &pool, std::function<void()> tx, Locks &... locks)
 	{
 		transaction::run(pool, tx, locks...);
+	}
+
+	/**
+	 * Takes a “snapshot” of given elements of type T number (1 by default),
+	 * located at the given address ptr in the virtual memory space and
+	 * saves it to the undo log. The application is then free to directly
+	 * modify the object in that memory range. In case of a failure or
+	 * abort, all the changes within this range will be rolled back. The
+	 * supplied block of memory has to be within the pool registered in the
+	 * transaction. This function must be called during transaction. This
+	 * overload only participates in overload resolution of function
+	 * template if T satisfies requirements of IS_TRIVIALLY_COPYABLE macro.
+	 *
+	 * @param[in] addr pointer to the first object to be snapshotted.
+	 * @param[in] num number of elements to be snapshotted.
+	 *
+	 * @pre this function must be called during transaction.
+	 *
+	 * @throw transaction_error when snapshotting failed or if function
+	 * wasn't called during transaction.
+	 */
+	template <typename T,
+		  typename std::enable_if<IS_TRIVIALLY_COPYABLE(T), T>::type * =
+			  nullptr>
+	static void
+	snapshot(const T *addr, size_t num = 1)
+	{
+		if (TX_STAGE_WORK != pmemobj_tx_stage())
+			throw transaction_error(
+				"wrong stage for taking a snapshot.");
+
+		if (pmemobj_tx_add_range_direct(addr, sizeof(*addr) * num))
+			throw transaction_error(
+				"Could not take a snapshot of given memory range.");
 	}
 
 private:
