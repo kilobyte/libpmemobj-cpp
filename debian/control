@@ -9,7 +9,8 @@ Build-Depends: cmake,
                libpmemobj-dev (>= 1.5~),
                libsfml-dev,
                libunwind-dev,
-               pkg-config
+               pkg-config,
+               valgrind
 Standards-Version: 4.3.0
 Section: libs
 Homepage: https://pmem.io/pmdk/cpp_obj/
