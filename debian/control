@@ -19,7 +19,7 @@ Vcs-Git: https://github.com/kilobyte/libpmemobj-cpp.git -b debian
 
 Package: libpmemobj-cpp-dev
 Section: libdevel
-Architecture: any
+Architecture: amd64
 Multi-Arch: same
 Depends: libpmemobj-dev, ${misc:Depends}, ${shlibs:Depends}
 Description: C++ bindings to libpmemobj
