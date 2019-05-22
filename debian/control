@@ -21,7 +21,7 @@ Package: libpmemobj-cpp-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: libpmemobj-dev, ${misc:Depends}, ${shlibs:Depends}
+Depends: libpmemobj-dev (>= 1.5~), ${misc:Depends}, ${shlibs:Depends}
 Description: C++ bindings to libpmemobj
  The C++ bindings provide an easier to use (and thus less error prone
  version) of libpmemobj -- the persistent memory object store -- through
