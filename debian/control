@@ -35,7 +35,7 @@ Section: doc
 Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
-Description: C++ bindings to libpmemobj
+Description: C++ bindings to libpmemobj - documentation
  The C++ bindings provide an easier to use (and thus less error prone
  version) of libpmemobj -- the persistent memory object store -- through
  the implementation of a pmem-resident property, persistent pointers,
