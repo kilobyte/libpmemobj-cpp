@@ -1,3 +1,15 @@
+libpmemobj-cpp (1.6-2) experimental; urgency=medium
+
+  * Sync Ubuntu changes:
+    • -doc: Section: doc
+    • -doc: better short desc
+    • -doc: doc-base registration
+    • -dev: mark as amd64 only (Ubuntu buildds can't handle B-Deps being
+            unavailable on some archs)
+    • Breaks/Replaces libpmemobj-* << 1.5 (Disco and lower)
+
+ -- Adam Borowski <kilobyte@angband.pl>  Fri, 24 May 2019 15:34:31 +0200
+
 libpmemobj-cpp (1.6-1) experimental; urgency=medium
 
   * New upstream release.
