@@ -67,7 +67,13 @@ if(COVERAGE)
        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -coverage")
 endif()
 
+find_packages()
+
 add_library(test_backtrace STATIC test_backtrace.c)
+if(LIBUNWIND_FOUND)
+	target_compile_definitions(test_backtrace PUBLIC USE_LIBUNWIND=1)
+endif()
+
 add_library(valgrind_internal STATIC valgrind_internal.cpp)
 
 function(build_example_queue)
@@ -85,18 +91,6 @@ function(build_example_pman)
 		message(WARNING "ncurses not found - pman test won't be build")
 	endif()
 endfunction()
-
-find_packages()
-
-if(VALGRIND_FOUND)
-	add_flag(-DLIBPMEMOBJ_CPP_VG_MEMCHECK_ENABLED=1)
-	add_flag(-DLIBPMEMOBJ_CPP_VG_DRD_ENABLED=1)
-	add_flag(-DLIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED=1)
-
-	if(VALGRIND_PMEMCHECK_FOUND)
-		add_flag(-DLIBPMEMOBJ_CPP_VG_PMEMCHECK_ENABLED=1)
-	endif()
-endif()
 
 if(NO_GCC_VARIADIC_TEMPLATE_BUG)
 	build_example_queue()
@@ -308,20 +302,67 @@ if (ENABLE_VECTOR)
 
 	build_test(vector_range vector_range/vector_range.cpp)
 	add_test_generic(NAME vector_range TRACERS none memcheck pmemcheck)
+
+	build_test(vector_layout vector_layout/vector_layout.cpp)
+	add_test_generic(NAME vector_layout TRACERS none)
 endif()
 
 if (ENABLE_STRING)
 	build_test(string_access string_access/string_access.cpp)
 	add_test_generic(NAME string_access TRACERS none memcheck pmemcheck)
 
+	build_test(string_capacity string_capacity/string_capacity.cpp)
+	add_test_generic(NAME string_capacity TRACERS none memcheck pmemcheck)
+
 	build_test(string_exceptions string_exceptions/string_exceptions.cpp)
 	add_test_generic(NAME string_exceptions TRACERS none memcheck pmemcheck)
+
+	build_test(string_modifiers string_modifiers/string_modifiers.cpp)
+	add_test_generic(NAME string_modifiers TRACERS none memcheck pmemcheck)
 
 	build_test(string_snapshot string_snapshot/string_snapshot.cpp)
 	add_test_generic(NAME string_snapshot TRACERS none memcheck pmemcheck)
 
 	build_test(string_assign_tx_abort string_assign_tx_abort/string_assign_tx_abort.cpp)
 	add_test_generic(NAME string_assign_tx_abort TRACERS none memcheck pmemcheck)
+
+	build_test(string_layout string_layout/string_layout.cpp)
+	add_test_generic(NAME string_layout TRACERS none)
+endif()
+
+if(PMEMVLT_PRESENT AND ENABLE_CONCURRENT_HASHMAP)
+	build_test(concurrent_hash_map concurrent_hash_map/concurrent_hash_map.cpp)
+	add_test_generic(NAME concurrent_hash_map TRACERS none memcheck pmemcheck drd helgrind)
+
+	build_test(concurrent_hash_map_rehash concurrent_hash_map_rehash/concurrent_hash_map_rehash.cpp)
+	add_test_generic(NAME concurrent_hash_map_rehash TRACERS none memcheck pmemcheck helgrind)
+
+	build_test(concurrent_hash_map_rehash_check concurrent_hash_map_rehash_check/concurrent_hash_map_rehash_check.cpp)
+	add_test_generic(NAME concurrent_hash_map_rehash_check TRACERS none memcheck pmemcheck)
+
+	build_test(concurrent_hash_map_singlethread concurrent_hash_map_singlethread/concurrent_hash_map_singlethread.cpp)
+	add_test_generic(NAME concurrent_hash_map_singlethread TRACERS none memcheck pmemcheck)
+
+	if(NOT USE_TBB)
+		message(WARNING "Skipping concurrent_hash_map_tbb test because it was not enabled.")
+	elseif(NOT TBB_FOUND)
+		message(WARNING "Skipping concurrent_hash_map_tbb test because Intel TBB library was not found")
+	else()
+		build_test_tbb(concurrent_hash_map_tbb concurrent_hash_map/concurrent_hash_map_tbb.cpp)
+		add_test_generic(NAME concurrent_hash_map_tbb TRACERS none pmemcheck)
+	endif()
+
+	if(PMREORDER_SUPPORTED)
+		build_test_tbb(concurrent_hash_map_pmreorder_simple concurrent_hash_map_pmreorder_simple/concurrent_hash_map_pmreorder_simple.cpp)
+		add_test_generic(NAME concurrent_hash_map_pmreorder_simple CASE 0 TRACERS none)
+
+		build_test_tbb(concurrent_hash_map_pmreorder_multiple_buckets concurrent_hash_map_pmreorder_multiple_buckets/concurrent_hash_map_pmreorder_multiple_buckets.cpp)
+		add_test_generic(NAME concurrent_hash_map_pmreorder_multiple_buckets CASE 0 TRACERS none)
+	else()
+		message(WARNING "Skipping pmreorder tests because of no pmreorder support")
+	endif()
+elseif(NOT PMEMVLT_PRESENT AND ENABLE_CONCURRENT_HASHMAP)
+	message(WARNING "Skipping concurrent_hash_map tests because no pmemvlt support found.")
 endif()
 
 add_subdirectory(external)

@@ -33,7 +33,7 @@ cmake_minimum_required(VERSION 3.3)
 project(libpmemobj-cpp C CXX)
 
 set(VERSION_MAJOR 1)
-set(VERSION_MINOR 6)
+set(VERSION_MINOR 7)
 set(VERSION_PATCH 0)
 #set(VERSION_PRERELEASE rc1)
 
@@ -77,6 +77,7 @@ option(TESTS_USE_VALGRIND "enable tests with valgrind (if found)" ON)
 option(ENABLE_ARRAY "enable installation and testing of pmem::obj::experimental::array" ON)
 option(ENABLE_VECTOR "enable installation and testing of pmem::obj::experimental::vector" ON)
 option(ENABLE_STRING "enable installation and testing of pmem::obj::experimental::string (depends on ENABLE_VECTOR)" ON)
+option(ENABLE_CONCURRENT_HASHMAP "enable installation and testing of pmem::obj::experimental::concurrent_hash_map (depends on ENABLE_STRING)" ON)
 
 # Required for MSVC to correctly define __cplusplus
 add_flag("/Zc:__cplusplus")
@@ -147,6 +148,8 @@ if(BUILD_TESTS OR BUILD_EXAMPLES)
 	endif()
 
 	math(EXPR LIBPMEMOBJ_VERSION_NUM "${LIBPMEMOBJ_VERSION_PATCH} + ${LIBPMEMOBJ_VERSION_MINOR} * 100 + ${LIBPMEMOBJ_VERSION_MAJOR} * 10000")
+
+	find_package(TBB COMPONENTS tbb)
 endif()
 
 add_executable(check_license EXCLUDE_FROM_ALL utils/check_license/check-license.c)
@@ -175,13 +178,13 @@ add_custom_target(tests)
 
 if(DEVELOPER_MODE)
 	add_flag(-Werror) # XXX: WX for windows
-	find_program(CLANG_FORMAT NAMES clang-format clang-format-6.0)
-	set(CLANG_FORMAT_REQUIRED "6.0")
+	find_program(CLANG_FORMAT NAMES clang-format clang-format-8.0)
+	set(CLANG_FORMAT_REQUIRED "8.0")
 	if(CLANG_FORMAT)
 		get_program_version(${CLANG_FORMAT} CLANG_FORMAT_VERSION)
 		if(NOT (CLANG_FORMAT_VERSION VERSION_EQUAL CLANG_FORMAT_REQUIRED))
 			message(WARNING "required clang-format version is ${CLANG_FORMAT_REQUIRED}")
-			unset(CLANG_FORMAT)
+			unset(CLANG_FORMAT CACHE)
 		endif()
 	else()
 		message(WARNING "clang-format not found - C++ sources will not be checked (needed version: ${CLANG_FORMAT_REQUIRED})")
@@ -232,7 +235,8 @@ install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 	PATTERN "string.hpp" EXCLUDE
 	PATTERN "basic_string.hpp" EXCLUDE
 	PATTERN "contiguous_iterator.hpp" EXCLUDE
-	PATTERN "slice.hpp" EXCLUDE)
+	PATTERN "slice.hpp" EXCLUDE
+	PATTERN "concurrent_hash_map.hpp" EXCLUDE)
 
 if (ENABLE_ARRAY)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "array.hpp")
@@ -245,6 +249,10 @@ endif()
 if (ENABLE_STRING)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "basic_string.hpp")
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "string.hpp")
+endif()
+
+if (ENABLE_CONCURRENT_HASHMAP)
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "concurrent_hash_map.hpp")
 endif()
 
 if (ENABLE_ARRAY OR ENABLE_VECTOR OR ENABLE_STRING)
@@ -282,64 +290,28 @@ write_basic_package_version_file(libpmemobj++-config-version.cmake
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libpmemobj++-config.cmake ${CMAKE_CURRENT_BINARY_DIR}/libpmemobj++-config-version.cmake
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/libpmemobj++/cmake)
 
-if(NOT MSVC_VERSION)
-	set(SAVED_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
+include_directories(include)
 
-	# Check for issues with older gcc compilers which do not expand variadic template
-	# variables in lambda expressions.
-	set(CMAKE_REQUIRED_FLAGS "--std=c++11 -Wno-error -c")
-	CHECK_CXX_SOURCE_COMPILES(
-		"void print() {}
-		template<typename...Args, typename T>
-		void print(const T&, const Args &...arg) {
-			auto f = [&]{ print(arg...);};
-		}
-		int main() {
-			print(1, 2, 3);
-			return 0;
-		}"
-		NO_GCC_VARIADIC_TEMPLATE_BUG)
+include(${CMAKE_SOURCE_DIR}/cmake/check_compiler_issues.cmake)
 
-	# Check for issues with older gcc compilers if "inline" aggregate initialization
-	# works for array class members https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65815
-	CHECK_CXX_SOURCE_COMPILES(
-		"struct array {
-			int data[2];
-		};
-		struct X {
-			array a = { 1, 2 };
-		};
-		int main() {
-			return 0;
-		}"
-		NO_GCC_AGGREGATE_INITIALIZATION_BUG)
-
-	# Check for issues related to agregate initialization in new expression.
-	# Following code will fail for LLVM compiler https://bugs.llvm.org/show_bug.cgi?id=39988
-	set(CMAKE_REQUIRED_FLAGS "--std=c++11 -Wno-error")
-	CHECK_CXX_SOURCE_COMPILES(
-		"template<typename T>
-		struct A {
-			 A() {};
-			~A() {};
-		};
-		struct B {
-			A<int> a;
-			A<int> b;
-		};
-		int main() {
-			new B{};
-			return 0;
-		}"
-		NO_CLANG_BRACE_INITIALIZATION_NEWEXPR_BUG)
-	set(CMAKE_REQUIRED_FLAGS ${SAVED_CMAKE_REQUIRED_FLAGS})
+if(PKG_CONFIG_FOUND)
+	pkg_check_modules(VALGRIND QUIET valgrind)
 else()
-	set(NO_GCC_VARIADIC_TEMPLATE_BUG TRUE)
-	set(NO_GCC_AGGREGATE_INITIALIZATION_BUG TRUE)
-	set(NO_CLANG_BRACE_INITIALIZATION_NEWEXPR_BUG TRUE)
+	find_package(VALGRIND QUIET)
 endif()
 
-include_directories(include)
+if(VALGRIND_FOUND)
+	add_flag(-DLIBPMEMOBJ_CPP_VG_MEMCHECK_ENABLED=1)
+	add_flag(-DLIBPMEMOBJ_CPP_VG_DRD_ENABLED=1)
+	add_flag(-DLIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED=1)
+
+	include_directories(${VALGRIND_INCLUDE_DIRS})
+	find_pmemcheck()
+
+	if(VALGRIND_PMEMCHECK_FOUND)
+		add_flag(-DLIBPMEMOBJ_CPP_VG_PMEMCHECK_ENABLED=1)
+	endif()
+endif()
 
 if(BUILD_TESTS)
 	if(TEST_DIR)

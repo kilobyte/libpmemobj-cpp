@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright 2017-2018, Intel Corporation
+# Copyright 2017-2019, Intel Corporation
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -40,7 +40,7 @@
 #   where the root of this project is on the host machine,
 # - set variables 'OS' and 'OS_VER' properly to a system you want to build this
 #	repo on (for proper values take a look on the list of Dockerfiles at the
-#   utils/docker/images directory), eg. OS=ubuntu, OS_VER=16.04.
+#   utils/docker/images directory), e.g. OS=ubuntu, OS_VER=19.04.
 #
 
 set -e
@@ -51,7 +51,7 @@ export KEEP_CONTAINER=${KEEP_CONTAINER:-0}
 
 if [[ -z "$OS" || -z "$OS_VER" ]]; then
 	echo "ERROR: The variables OS and OS_VER have to be set " \
-		"(eg. OS=ubuntu, OS_VER=16.04)."
+		"(e.g. OS=ubuntu, OS_VER=19.04)."
 	exit 1
 fi
 
@@ -62,12 +62,12 @@ fi
 chmod -R a+w $HOST_WORKDIR
 
 if [[ "$TRAVIS_EVENT_TYPE" == "cron" || "$TRAVIS_BRANCH" == "coverity_scan" ]]; then
-	if [[ $TYPE != coverity ]]; then
+	if [[ "$TYPE" != "coverity" ]]; then
 		echo "Skipping non-Coverity job for cron/Coverity build"
 		exit 0
 	fi
 else
-	if [[ $TYPE = "coverity" ]]; then
+	if [[ "$TYPE" == "coverity" ]]; then
 		echo "Skipping Coverity job for non cron/Coverity build"
 		exit 0
 	fi
@@ -87,7 +87,7 @@ if [[ "$command" == "" ]]; then
 	esac
 fi
 
-if [ "$COVERAGE" = "1" ]; then
+if [ "$COVERAGE" == "1" ]; then
 	docker_opts="${docker_opts} `bash <(curl -s https://codecov.io/env)`";
 fi
 

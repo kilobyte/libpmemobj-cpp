@@ -105,11 +105,12 @@ cmake .. -DDEVELOPER_MODE=1 \
 			-DCXX_STANDARD=17 \
 			-DTESTS_USE_VALGRIND=0 \
 			-DTEST_DIR=/mnt/pmem \
-			-DTESTS_USE_FORCED_PMEM=1
+			-DTESTS_USE_FORCED_PMEM=1 \
+			-DUSE_TBB=1 \
 
 make -j2
 ctest --output-on-failure --timeout 540
-if [ "$COVERAGE" = "1" ]; then
+if [ "$COVERAGE" == "1" ]; then
 	upload_codecov tests_clang_debug_cpp17
 fi
 
@@ -133,15 +134,16 @@ cmake .. -DDEVELOPER_MODE=1 \
 			-DCOVERAGE=$COVERAGE \
 			-DTESTS_USE_VALGRIND=1 \
 			-DTEST_DIR=/mnt/pmem \
-			-DTESTS_USE_FORCED_PMEM=1
+			-DTESTS_USE_FORCED_PMEM=1 \
+			-DUSE_TBB=1 \
 
 make -j2
-if [ "$COVERAGE" = "1" ]; then
+if [ "$COVERAGE" == "1" ]; then
 	# valgrind reports error when used with code coverage
 	ctest -E "_memcheck|_drd|_helgrind|_pmemcheck" --timeout 540
 	upload_codecov tests_gcc_debug
 else
-	ctest --output-on-failure --timeout 540
+	PMREORDER_STACKTRACE_DEPTH=20 ctest --output-on-failure --timeout 540
 fi
 
 cd ..
@@ -171,7 +173,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release \
 
 make -j2
 ctest --output-on-failure --timeout 540
-if [ "$COVERAGE" = "1" ]; then
+if [ "$COVERAGE" == "1" ]; then
 	upload_codecov tests_gcc_release_cpp17_no_valgrind
 fi
 

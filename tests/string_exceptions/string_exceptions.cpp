@@ -96,7 +96,8 @@ assert_tx_exception(std::function<void(void)> f)
 }
 
 void
-test_ctor_exceptions_nopmem(pmem::obj::pool<struct root> &pop) try {
+test_ctor_exceptions_nopmem(pmem::obj::pool<struct root> &pop)
+try {
 	auto r = pop.root();
 
 	pmem::obj::transaction::run(pop, [&] {
@@ -124,6 +125,16 @@ test_ctor_exceptions_nopmem(pmem::obj::pool<struct root> &pop) try {
 		assert_pool_exception([&] {
 			string_type str({'a', 'b', 'c'});
 		});
+
+		assert_pool_exception([&] {
+			std::string s("abc");
+			string_type str(s);
+		});
+
+		assert_pool_exception([&] {
+			std::string s("abc");
+			string_type str(s, 0, 3);
+		});
 	});
 
 	pmem::obj::transaction::run(pop, [&] {
@@ -134,7 +145,8 @@ test_ctor_exceptions_nopmem(pmem::obj::pool<struct root> &pop) try {
 }
 
 void
-test_ctor_exceptions_notx(pmem::obj::pool<struct root> &pop) try {
+test_ctor_exceptions_notx(pmem::obj::pool<struct root> &pop)
+try {
 	auto r = pop.root();
 
 	pmem::obj::transaction::run(pop, [&] {
@@ -193,6 +205,25 @@ test_ctor_exceptions_notx(pmem::obj::pool<struct root> &pop) try {
 	assert_tx_exception([&] {
 		new (&(r->p_storage->str)) string_type({'a', 'b', 'c'});
 	});
+
+	pmem::obj::transaction::run(pop,
+				    [&] { r->p_storage->str.~string_type(); });
+
+	assert_tx_exception([&] {
+		std::string s("abc");
+		new (&(r->p_storage->str)) string_type(s);
+	});
+
+	pmem::obj::transaction::run(pop,
+				    [&] { r->p_storage->str.~string_type(); });
+
+	assert_tx_exception([&] {
+		std::string s("abc");
+		new (&(r->p_storage->str)) string_type(s, 0, 3);
+	});
+
+	pmem::obj::transaction::run(pop,
+				    [&] { r->p_storage->str.~string_type(); });
 
 	pmem::obj::transaction::run(pop, [&] {
 		pmem::obj::delete_persistent<pmem_string_struct>(r->p_storage);

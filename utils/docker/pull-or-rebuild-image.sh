@@ -50,14 +50,14 @@
 set -e
 
 if [[ "$TRAVIS_EVENT_TYPE" != "cron" && "$TRAVIS_BRANCH" != "coverity_scan" \
-	&& "$COVERITY" -eq 1 ]]; then
+	&& "$TYPE" == "coverity" ]]; then
 	echo "INFO: Skip Coverity scan job if build is triggered neither by " \
 		"'cron' nor by a push to 'coverity_scan' branch"
 	exit 0
 fi
 
 if [[ ( "$TRAVIS_EVENT_TYPE" == "cron" || "$TRAVIS_BRANCH" == "coverity_scan" )\
-	&& "$COVERITY" -ne 1 ]]; then
+	&& "$TYPE" != "coverity" ]]; then
 	echo "INFO: Skip regular jobs if build is triggered either by 'cron'" \
 		" or by a push to 'coverity_scan' branch"
 	exit 0
@@ -65,7 +65,7 @@ fi
 
 if [[ -z "$OS" || -z "$OS_VER" ]]; then
 	echo "ERROR: The variables OS and OS_VER have to be set properly " \
-             "(eg. OS=ubuntu, OS_VER=16.04)."
+             "(e.g. OS=ubuntu, OS_VER=19.04)."
 	exit 1
 fi
 
