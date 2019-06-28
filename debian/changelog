@@ -1,3 +1,19 @@
+libpmemobj-cpp (1.7-1) experimental; urgency=medium
+
+  * New upstream release.
+  * Merge in Ubuntu changes:
+    + Add Breaks/Replaces for ≤ Disco.
+    + Set Architecture to amd64 only (Ubuntu can't cope with
+      BD-Uninstallable).
+    + Register with doc-base.
+    + Set Section of the -doc package.
+  * B-Dep on pmemobj 1.6 (runtime still works with 1.5).
+  * During tests, pretend we're running on pmem, to avoid msync.
+  * Cherry-pick an upstream fix for basic_string.
+  * Give pmpong autopkgtest Dep: on fontconfig.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Fri, 28 Jun 2019 14:03:34 +0200
+
 libpmemobj-cpp (1.6-2) experimental; urgency=medium
 
   * Sync Ubuntu changes:
