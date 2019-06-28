@@ -5,7 +5,7 @@ Tests: array-clang
 Depends: clang, make, cmake, libpmemobj-cpp-dev, pkg-config
 
 Tests: pmpong
-Depends: g++, make, cmake, libpmemobj-cpp-dev, libsfml-dev
+Depends: g++, make, cmake, libpmemobj-cpp-dev, libsfml-dev, fontconfig
 
 Tests: panaconda pman
 Depends: g++, make, cmake, libpmemobj-cpp-dev, libncurses-dev
