@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Intel Corporation
+ * Copyright 2019, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,86 +30,29 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*
- * pmemobj_check_cow -- checks if pmemobj supports COW on pool opening
- *			which can be triggered using PMEMOBJ_COW env variable
+/**
+ * @file
+ * String typedefs for common character types.
  */
 
-#include <libpmemobj++/persistent_ptr.hpp>
-#include <libpmemobj++/pool.hpp>
+#ifndef LIBPMEMOBJ_CPP_STRING_HPP
+#define LIBPMEMOBJ_CPP_STRING_HPP
 
-#include <iostream>
-#include <string>
+#include <libpmemobj++/container/basic_string.hpp>
 
-struct root {
-	int foo = 0;
-};
-
-void
-init(const std::string &path)
+namespace pmem
 {
-	auto pop = pmem::obj::pool<root>::create(
-		path, "COW_CHECK", PMEMOBJ_MIN_POOL, S_IWUSR | S_IRUSR);
 
-	auto r = pop.root();
-	r->foo = 0;
-	r.persist();
-
-	pop.close();
-}
-
-void
-open_and_write(const std::string &path)
+namespace obj
 {
-	auto pop = pmem::obj::pool<root>::open(path, "COW_CHECK");
 
-	auto r = pop.root();
-	r->foo = 1;
-	r.persist();
+using string = basic_string<char>;
+using wstring = basic_string<wchar_t>;
+using u16string = basic_string<char16_t>;
+using u32string = basic_string<char32_t>;
 
-	pop.close();
-}
+} /* namespace obj */
 
-bool
-check_cow_support(const std::string &path)
-{
-	auto pop = pmem::obj::pool<root>::open(path, "COW_CHECK");
+} /* namespace pmem */
 
-	bool cow_supported = pop.root()->foo == 0;
-
-	pop.close();
-
-	return cow_supported;
-}
-
-/*
- * return value is:
- * - 0 when COW is supported
- * - 1 when error occures during this program execution
- * - 2 when COW is not supported
- */
-int
-main(int argc, char *argv[])
-{
-	if (argc < 2) {
-		std::cerr << "usage: " << argv[0] << " "
-			  << " filename\n";
-		return 1;
-	}
-
-	std::string path = argv[1];
-	bool supported = false;
-
-	try {
-		init(path);
-		open_and_write(path);
-		supported = check_cow_support(path);
-	} catch (pmem::pool_error &pe) {
-		std::cerr << pe.what();
-		return 1;
-	}
-
-	remove(path.c_str());
-
-	return supported ? 0 : 2;
-}
+#endif /* LIBPMEMOBJ_CPP_STRING_HPP */

@@ -1,5 +1,4 @@
-#
-# Copyright 2018-2019, Intel Corporation
+# Copyright 2017-2019, Intel Corporation
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -29,15 +28,23 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-cmake_minimum_required(VERSION 3.3)
-project(pmemobj_check_cow CXX)
+if(PKG_CONFIG_FOUND)
+	pkg_check_modules(TBB tbb)
+endif()
 
-set(CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 11)
+if(NOT TBB_FOUND)
+	# find_package without unsetting this var is not working correctly
+	unset(TBB_FOUND CACHE)
+	find_package(TBB COMPONENTS tbb)
 
-include_directories(${LIBPMEMOBJ_INCLUDE_DIRS})
-include_directories(${LIBPMEMOBJ++_INCLUDE_DIRS})
-link_directories(${LIBPMEMOBJ_LIBRARY_DIRS})
-link_libraries(${LIBPMEMOBJ_LIBRARIES})
+	if(TBB_FOUND)
+		message(STATUS "TBB package found without pkg-config")
+	endif()
 
-add_executable(pmemobj_check_cow pmemobj_check_cow.cpp)
+	set(TBB_LIBRARIES ${TBB_IMPORTED_TARGETS})
+endif()
+
+if(NOT TBB_FOUND)
+	message(WARNING "TBB not found. Please set TBB_DIR CMake variable if TBB \
+is installed in a non-standard directory, like: -DTBB_DIR=<path_to_tbb_cmake_dir>")
+endif()
