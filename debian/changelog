@@ -1,3 +1,11 @@
+libpmemobj-cpp (1.8~rc1-1) experimental; urgency=medium
+
+  * New upstream pre-release.
+  * dh 12, R³.
+  * Build-Depend on pmemobj 1.7.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Thu, 03 Oct 2019 15:00:07 +0200
+
 libpmemobj-cpp (1.7-1) experimental; urgency=medium
 
   * New upstream release.
