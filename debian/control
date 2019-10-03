@@ -2,7 +2,7 @@ Source: libpmemobj-cpp
 Priority: optional
 Maintainer: Adam Borowski <kilobyte@angband.pl>
 Build-Depends: cmake,
-               debhelper (>= 11~),
+               debhelper-compat (= 12),
                doxygen,
                graphviz,
                libncurses5-dev,
