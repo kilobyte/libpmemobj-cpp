@@ -12,6 +12,7 @@ Build-Depends: cmake,
                pkg-config,
                valgrind
 Standards-Version: 4.4.0
+Rules-Requires-Root: no
 Section: libs
 Homepage: https://pmem.io/pmdk/cpp_obj/
 Vcs-Browser: https://github.com/kilobyte/libpmemobj-cpp
