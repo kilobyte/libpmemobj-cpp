@@ -8,6 +8,7 @@ Build-Depends: cmake,
                libncurses5-dev,
                libpmemobj-dev (>= 1.7~),
                libsfml-dev,
+               libtbb-dev,
                libunwind-dev,
                pkg-config,
                valgrind
