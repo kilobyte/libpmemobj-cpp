@@ -12,7 +12,7 @@ Build-Depends: cmake,
                libunwind-dev,
                pkg-config,
                valgrind
-Standards-Version: 4.4.0
+Standards-Version: 4.4.1
 Rules-Requires-Root: no
 Section: libs
 Homepage: https://pmem.io/pmdk/cpp_obj/
