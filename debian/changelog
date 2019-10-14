@@ -1,3 +1,9 @@
+libpmemobj-cpp (1.8-2) unstable; urgency=medium
+
+  * Cherry-pick a fix for random test failures in concurrent_hash_map.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Mon, 14 Oct 2019 18:19:43 +0200
+
 libpmemobj-cpp (1.8-1) unstable; urgency=medium
 
   * Upstream release.
