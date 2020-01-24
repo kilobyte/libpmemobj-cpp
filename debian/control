@@ -4,6 +4,7 @@ Maintainer: Adam Borowski <kilobyte@angband.pl>
 Build-Depends: cmake,
                debhelper-compat (= 12),
                doxygen,
+               gdb,
                graphviz,
                libncurses5-dev,
                libpmemobj-dev (>= 1.7~),
