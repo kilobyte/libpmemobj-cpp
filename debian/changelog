@@ -1,3 +1,9 @@
+libpmemobj-cpp (1.8.1-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Sat, 25 Jan 2020 00:32:14 +0100
+
 libpmemobj-cpp (1.8.1~rc1-1) experimental; urgency=medium
 
   * New upstream pre-release of a bugfix version with suspiciously many
