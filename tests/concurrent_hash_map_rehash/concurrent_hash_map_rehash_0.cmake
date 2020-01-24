@@ -1,6 +1,5 @@
-#!/usr/bin/env bash
 #
-# Copyright 2018-2019, Intel Corporation
+# Copyright 2019, Intel Corporation
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -30,26 +29,14 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#
-# install-pmdk.sh - installs libpmem & libpmemobj
-#
+include(${SRC_DIR}/../helpers.cmake)
 
-set -e
+setup()
 
-git clone https://github.com/pmem/pmdk
-cd pmdk
-git checkout 1.7
+if ((${TRACER} STREQUAL "drd") OR (${TRACER} STREQUAL "helgrind"))
+    check_is_pmem(${DIR}/testfile)
+endif()
 
-sudo make -j$(nproc) install prefix=/opt/pmdk
+execute(${TEST_EXECUTABLE} ${DIR}/testfile)
 
-sudo mkdir /opt/pmdk-pkg
-NDCTL_ENABLE=n make -j$(nproc) BUILD_PACKAGE_CHECK=n "$1"
-
-if [ "$1" = "dpkg" ]; then
-	sudo mv dpkg/*.deb /opt/pmdk-pkg/
-elif [ "$1" = "rpm" ]; then
-	sudo mv rpm/x86_64/*.rpm /opt/pmdk-pkg/
-fi
-
-cd ..
-rm -rf pmdk
+finish()

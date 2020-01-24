@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019, Intel Corporation
+ * Copyright 2020, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,11 +31,11 @@
  */
 
 /*
- * concurrent_hash_map_insert_lookup.cpp -- pmem::obj::concurrent_hash_map test
+ * concurrent_hash_map_deadlock.cpp -- pmem::obj::concurrent_hash_map test
  *
  */
 
-#include "concurrent_hash_map_test.hpp"
+#include "../concurrent_hash_map/concurrent_hash_map_test.hpp"
 #include "unittest.hpp"
 
 int
@@ -62,56 +62,7 @@ main(int argc, char *argv[])
 		UT_FATAL("!pool::create: %s %s", pe.what(), path);
 	}
 
-	/* Test that scoped_lock traits is working correctly */
-#if LIBPMEMOBJ_CPP_USE_TBB_RW_MUTEX
-	UT_ASSERT(pmem::obj::concurrent_hash_map_internal::scoped_lock_traits<
-			  tbb::spin_rw_mutex::scoped_lock>::
-			  initial_rw_state(true) == false);
-#else
-	UT_ASSERT(pmem::obj::concurrent_hash_map_internal::scoped_lock_traits<
-			  pmem::obj::concurrent_hash_map_internal::
-				  shared_mutex_scoped_lock<
-					  pmem::obj::shared_mutex>>::
-			  initial_rw_state(true) == true);
-#endif
-
-	size_t concurrency = 8;
-	if (On_drd)
-		concurrency = 2;
-	std::cout << "Running tests for " << concurrency << " threads"
-		  << std::endl;
-
-	insert_and_lookup_key_test<persistent_map_type::const_accessor, int>(
-		pop, concurrency);
-
-	insert_and_lookup_key_test<persistent_map_type::accessor, int>(
-		pop, concurrency);
-
-	insert_and_lookup_value_type_test<
-		persistent_map_type::const_accessor,
-		const persistent_map_type::value_type>(pop, concurrency);
-
-	insert_and_lookup_value_type_test<
-		persistent_map_type::accessor,
-		const persistent_map_type::value_type>(pop, concurrency);
-
-	insert_and_lookup_value_type_test<persistent_map_type::const_accessor,
-					  persistent_map_type::value_type>(
-		pop, concurrency);
-
-	insert_and_lookup_value_type_test<persistent_map_type::accessor,
-					  persistent_map_type::value_type>(
-		pop, concurrency);
-
-	insert_and_lookup_value_type_test<persistent_map_type::value_type>(
-		pop, concurrency);
-
-	insert_and_lookup_value_type_test<
-		const persistent_map_type::value_type>(pop, concurrency);
-
-	insert_and_lookup_initializer_list_test(pop, concurrency);
-
-	insert_and_lookup_iterator_test(pop, concurrency);
+	lookup_insert_erase_deadlock_test(pop);
 
 	pop.close();
 	return 0;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Intel Corporation
+ * Copyright 2019-2020, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -890,9 +890,6 @@ public:
 		uint32_t incompat;
 	};
 
-	/** Features supported by this header */
-	static constexpr features header_features = {0, 0};
-
 	/* --------------------------------------------------------- */
 
 	/** ID of persistent memory pool where hash map resides. */
@@ -900,7 +897,7 @@ public:
 
 	/** Specifies features of a hashmap, used to check compatibility between
 	 * header and the data */
-	features layout_features = (features)header_features;
+	features layout_features;
 
 	/** In future, my_mask can be implemented using v<> (8 bytes
 	 * overhead) */
@@ -939,6 +936,13 @@ public:
 
 	/* --------------------------------------------------------- */
 
+	/** Features supported by this header */
+	static constexpr features
+	header_features()
+	{
+		return {0, 0};
+	}
+
 	const std::atomic<hashcode_type> &
 	mask() const noexcept
 	{
@@ -970,6 +974,7 @@ public:
 		VALGRIND_HG_DISABLE_CHECKING(&my_size, sizeof(my_size));
 		VALGRIND_HG_DISABLE_CHECKING(&my_mask, sizeof(my_mask));
 #endif
+		layout_features = header_features();
 
 		my_size.get_rw() = 0;
 		PMEMoid oid = pmemobj_oid(this);
@@ -1505,6 +1510,9 @@ operator!=(const hash_map_iterator<Container, M> &i,
  * find(), insert(), erase() (and all overloads) are guaranteed to be
  * thread-safe.
  *
+ * When a thread holds accessor to an element with a certain key, it is not
+ * allowed to call find, insert nor erase with that key.
+ *
  * MutexType defines type of read write lock used in concurrent_hash_map.
  * ScopedLockType defines a mutex wrapper that provides RAII-style mechanism
  * for owning a mutex. It should implement following methods and constructors:
@@ -1522,6 +1530,11 @@ operator!=(const hash_map_iterator<Container, M> &i,
  * Implementing all optional methods and supplying is_writer variable can
  * improve performance if MutexType supports efficient upgrading and
  * downgrading operations.
+ *
+ * Testing note:
+ * In some case, helgrind and drd might report lock ordering errors for
+ * concurrent_hash_map. This might happen when calling find, insert or erase
+ * while already holding an accessor to some element.
  *
  * The typical usage example would be:
  * @snippet doc_snippets/concurrent_hash_map.cpp concurrent_hash_map_example
@@ -1779,7 +1792,17 @@ protected:
 
 		pool_base pop = get_pool_base();
 		node_ptr_t *p_new = &(b_new->node_list);
-		bool restore_after_crash = *p_new != nullptr;
+
+		/* This condition is only true when there was a failure just
+		 * before setting rehashed flag */
+		if (*p_new != nullptr) {
+			assert(!b_new->is_rehashed(std::memory_order_relaxed));
+
+			b_new->set_rehashed(std::memory_order_relaxed);
+			pop.persist(b_new->rehashed);
+
+			return;
+		}
 
 		/* get parent mask from the topmost bit */
 		hashcode_type mask = (1u << detail::Log2(h)) - 1;
@@ -1788,69 +1811,50 @@ protected:
 			this, h & mask,
 			scoped_lock_traits_type::initial_rw_state(true));
 
-		/* get full mask for new bucket */
-		mask = (mask << 1) | 1;
-		assert((mask & (mask + 1)) == 0 && (h & mask) == h);
-	restart:
-		for (node_ptr_t *p_old = &(b_old->node_list), n = *p_old; n;
-		     n = *p_old) {
-			hashcode_type c = get_hash_code(n);
+		pmem::obj::transaction::run(pop, [&] {
+			/* get full mask for new bucket */
+			mask = (mask << 1) | 1;
+			assert((mask & (mask + 1)) == 0 && (h & mask) == h);
+
+		restart:
+			for (node_ptr_t *p_old = &(b_old->node_list),
+					n = *p_old;
+			     n; n = *p_old) {
+				hashcode_type c = get_hash_code(n);
 #ifndef NDEBUG
-			hashcode_type bmask = h & (mask >> 1);
+				hashcode_type bmask = h & (mask >> 1);
 
-			bmask = bmask == 0
-				? 1 /* minimal mask of parent bucket */
-				: (1u << (detail::Log2(bmask) + 1)) - 1;
+				bmask = bmask == 0
+					? 1 /* minimal mask of parent bucket */
+					: (1u << (detail::Log2(bmask) + 1)) - 1;
 
-			assert((c & bmask) == (h & bmask));
+				assert((c & bmask) == (h & bmask));
 #endif
 
-			if ((c & mask) == h) {
-				if (!b_old.is_writer() &&
-				    !scoped_lock_traits_type::upgrade_to_writer(
-					    b_old)) {
-					goto restart;
-					/* node ptr can be invalid due to
-					 * concurrent erase */
-				}
-
-				if (restore_after_crash) {
-					while (*p_new != nullptr &&
-					       (mask & get_hash_code(*p_new)) ==
-						       h &&
-					       *p_new != n) {
-						p_new = &(
-							(*p_new)(
-								this->my_pool_uuid)
-								->next);
+				if ((c & mask) == h) {
+					if (!b_old.is_writer() &&
+					    !scoped_lock_traits_type::
+						    upgrade_to_writer(b_old)) {
+						goto restart;
+						/* node ptr can be invalid due
+						 * to concurrent erase */
 					}
 
-					restore_after_crash = false;
+					/* Add to new b_new */
+					*p_new = n;
+
+					/* exclude from b_old */
+					*p_old = n(this->my_pool_uuid)->next;
+
+					p_new = &(n(this->my_pool_uuid)->next);
+				} else {
+					/* iterate to next item */
+					p_old = &(n(this->my_pool_uuid)->next);
 				}
-
-				/* Add to new b_new */
-				*p_new = n;
-				pop.persist(p_new, sizeof(*p_new));
-
-				/* exclude from b_old */
-				*p_old = n(this->my_pool_uuid)->next;
-				pop.persist(p_old, sizeof(*p_old));
-
-				p_new = &(n(this->my_pool_uuid)->next);
-			} else {
-				/* iterate to next item */
-				p_old = &(n(this->my_pool_uuid)->next);
 			}
-		}
 
-		if (restore_after_crash) {
-			while (*p_new != nullptr &&
-			       (mask & get_hash_code(*p_new)) == h)
-				p_new = &((*p_new)(this->my_pool_uuid)->next);
-		}
-
-		*p_new = nullptr;
-		pop.persist(p_new, sizeof(*p_new));
+			*p_new = nullptr;
+		});
 
 		/* mark rehashed */
 		b_new->set_rehashed(std::memory_order_release);
@@ -1860,7 +1864,7 @@ protected:
 	void
 	check_features()
 	{
-		if (layout_features.incompat != header_features.incompat)
+		if (layout_features.incompat != header_features().incompat)
 			throw pmem::layout_error(
 				"Incompat flags mismatch, for more details go to: https://pmem.io/pmdk/cpp_obj/ \n");
 	}
@@ -2834,28 +2838,31 @@ search:
 		goto search;
 	}
 
+	persistent_ptr<node> del = n(this->my_pool_uuid);
+
 	{
-		transaction::manual tx(pop);
+		/* We cannot remove this element immediately because
+		 * other threads might work with this element via
+		 * accessors. The item_locker required to wait while
+		 * other threads use the node. */
+		const_accessor acc;
+		if (!try_acquire_item(&acc, del->mutex, true)) {
+			/* the wait takes really long, restart the operation */
+			b.release();
 
-		persistent_ptr<node> del = n(this->my_pool_uuid);
+			std::this_thread::yield();
 
-		*p = del->next;
+			m = mask().load(std::memory_order_acquire);
 
-		{
-			/* We cannot remove this element immediately because
-			 * other threads might work with this element via
-			 * accessors. The item_locker required to wait while
-			 * other threads use the node. */
-			typename node::scoped_t item_locker(del->mutex,
-							    /*write=*/true);
+			goto restart;
 		}
-
-		/* Only one thread can delete it due to write lock on the bucket
-		 */
-		delete_node(del);
-
-		transaction::commit();
 	}
+
+	/* Only one thread can delete it due to write lock on the bucket */
+	transaction::run(pop, [&] {
+		*p = del->next;
+		delete_node(del);
+	});
 
 	--(this->my_size.get_rw());
 	pop.persist(this->my_size);

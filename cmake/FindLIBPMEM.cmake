@@ -29,12 +29,19 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-include(${SRC_DIR}/../helpers.cmake)
+find_path(LIBPMEM_INCLUDE_DIR libpmem.h)
+find_library(LIBPMEM_LIBRARY NAMES pmem libpmem)
 
-setup()
+set(LIBPMEM_LIBRARIES ${LIBPMEM_LIBRARY})
+set(LIBPMEM_INCLUDE_DIRS ${LIBPMEM_INCLUDE_DIR})
 
-execute(${TEST_EXECUTABLE} c ${DIR}/testfile)
-pmreorder_create_store_log(${DIR}/testfile ${TEST_EXECUTABLE} e ${DIR}/testfile)
-pmreorder_execute(true ReorderAccumulative ${SRC_DIR}/pmreorder.conf ${TEST_EXECUTABLE} o)
+set(MSG_NOT_FOUND "libpmem NOT found (set CMAKE_PREFIX_PATH to point the location)")
+if(NOT (LIBPMEM_INCLUDE_DIR AND LIBPMEM_LIBRARY))
+	if(LIBPMEM_FIND_REQUIRED)
+		message(FATAL_ERROR ${MSG_NOT_FOUND})
+	else()
+		message(WARNING ${MSG_NOT_FOUND})
+	endif()
+endif()
 
-finish()
+mark_as_advanced(LIBPMEM_LIBRARY LIBPMEM_INCLUDE_DIR)
