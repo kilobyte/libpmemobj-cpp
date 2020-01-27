@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2019, Intel Corporation
+ * Copyright 2015-2020, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,6 +42,7 @@
 #include <libpmemobj++/make_persistent_atomic.hpp>
 #include <libpmemobj++/p.hpp>
 #include <libpmemobj++/persistent_ptr.hpp>
+#include <libpmemobj++/persistent_ptr_base.hpp>
 #include <libpmemobj++/pool.hpp>
 #include <libpmemobj++/transaction.hpp>
 
@@ -119,9 +120,10 @@ struct nested {
 struct root {
 	nvobj::persistent_ptr<foo> pfoo;
 	nvobj::persistent_ptr<nvobj::p<int>[TEST_ARR_SIZE]> parr;
+	nvobj::persistent_ptr_base arr[3];
 
 	/* This variable is unused, but it's here to check if the persistent_ptr
-	 * does not violate it's own restrictions.
+	 * does not violate its own restrictions.
 	 */
 	nvobj::persistent_ptr<nested> outer;
 };
@@ -338,7 +340,46 @@ test_offset(nvobj::pool<root> &pop)
 			nvobj::persistent_ptr<B> bptr = cptr;
 			UT_ASSERT((bptr.raw().off - cptr.raw().off) ==
 				  sizeof(A));
+
+			nvobj::persistent_ptr<B> bptr2;
+			bptr2 = cptr;
+			UT_ASSERT((bptr2.raw().off - cptr.raw().off) ==
+				  sizeof(A));
+
+			nvobj::persistent_ptr<B> bptr3 =
+				static_cast<nvobj::persistent_ptr<B>>(cptr);
+			UT_ASSERT((bptr3.raw().off - cptr.raw().off) ==
+				  sizeof(A));
+
 			nvobj::delete_persistent<C>(cptr);
+		});
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+}
+
+void
+test_base_ptr_casting(nvobj::pool<root> &pop)
+{
+	auto r = pop.root();
+
+	try {
+		nvobj::transaction::run(pop, [&] {
+			r->arr[0] = nvobj::make_persistent<foo>();
+			r->arr[1] = nvobj::make_persistent<int>(TEST_INT);
+			r->arr[2] = nullptr;
+
+			UT_ASSERT(!OID_IS_NULL(r->arr[0].raw()));
+			UT_ASSERTeq(*(int *)pmemobj_direct(r->arr[1].raw()),
+				    TEST_INT);
+			UT_ASSERT(OID_IS_NULL(r->arr[2].raw()));
+
+			nvobj::persistent_ptr<foo> tmp0 = r->arr[0].raw();
+			nvobj::persistent_ptr<int> tmp1 = r->arr[1].raw();
+			nvobj::persistent_ptr<foo> tmp2 = r->arr[2].raw();
+			nvobj::delete_persistent<foo>(tmp0);
+			nvobj::delete_persistent<int>(tmp1);
+			nvobj::delete_persistent<foo>(tmp2);
 		});
 	} catch (...) {
 		UT_ASSERT(0);
@@ -370,6 +411,7 @@ main(int argc, char *argv[])
 	test_ptr_transactional(pop);
 	test_ptr_array(pop);
 	test_offset(pop);
+	test_base_ptr_casting(pop);
 
 	pop.close();
 

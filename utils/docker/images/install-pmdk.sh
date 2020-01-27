@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright 2018-2019, Intel Corporation
+# Copyright 2018-2020, Intel Corporation
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -36,18 +36,27 @@
 
 set -e
 
+PACKAGE_MANAGER=$1
+
+# devel-1.8: Merge pull request #4497 from marcinslusarz/build, 23.01.2020
+PMDK_VERSION="1947982d15ebb3d107e781cdc1484ef4ce81cc41"
+
 git clone https://github.com/pmem/pmdk
 cd pmdk
-git checkout 1.7
+git checkout $PMDK_VERSION
 
-sudo make -j$(nproc) install prefix=/opt/pmdk
+make -j$(nproc) prefix=/opt/pmdk
+sudo make install -j$(nproc) prefix=/opt/pmdk
+
+# Do not create nor test any packages if PACKAGE_MANAGER is not set.
+[ "$PACKAGE_MANAGER" == "" ] && exit 0
 
 sudo mkdir /opt/pmdk-pkg
-NDCTL_ENABLE=n make -j$(nproc) BUILD_PACKAGE_CHECK=n "$1"
+make -j$(nproc) BUILD_PACKAGE_CHECK=n "$PACKAGE_MANAGER"
 
-if [ "$1" = "dpkg" ]; then
+if [ "$PACKAGE_MANAGER" = "dpkg" ]; then
 	sudo mv dpkg/*.deb /opt/pmdk-pkg/
-elif [ "$1" = "rpm" ]; then
+elif [ "$PACKAGE_MANAGER" = "rpm" ]; then
 	sudo mv rpm/x86_64/*.rpm /opt/pmdk-pkg/
 fi
 

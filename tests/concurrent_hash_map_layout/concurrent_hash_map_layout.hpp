@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019, Intel Corporation
+ * Copyright 2018-2020, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -53,9 +53,9 @@ static constexpr std::size_t CACHELINE_SIZE = 64;
 /*
  * Test is implemented in inherited class to get access to protected variables.
  */
-template <typename MapType, std::size_t value_size>
+template <typename MapType, std::size_t ValueSize>
 struct hashmap_test : public MapType {
-	static constexpr std::size_t NODE_SIZE = 72 + value_size;
+	static constexpr std::size_t NODE_SIZE = 72 + ValueSize;
 
 	using persistent_map_type = MapType;
 	using hash_map_base = typename MapType::hash_map_base;
@@ -69,12 +69,15 @@ struct hashmap_test : public MapType {
 		ASSERT_ALIGNED_FIELD(T, t, layout_features);
 		ASSERT_ALIGNED_FIELD(T, t, my_mask_reserved);
 		ASSERT_ALIGNED_FIELD(T, t, my_mask);
+		ASSERT_ALIGNED_FIELD(T, t, value_size);
 		ASSERT_ALIGNED_FIELD(T, t, padding1);
 		ASSERT_OFFSET_CHECKPOINT(T, CACHELINE_SIZE);
 		ASSERT_ALIGNED_FIELD(T, t, my_table);
 		ASSERT_ALIGNED_FIELD(T, t, my_size);
 		ASSERT_ALIGNED_FIELD(T, t, padding2);
 		ASSERT_OFFSET_CHECKPOINT(T, 16 * CACHELINE_SIZE);
+		ASSERT_ALIGNED_FIELD(T, t, tls_ptr);
+		ASSERT_ALIGNED_FIELD(T, t, on_init_size);
 		ASSERT_ALIGNED_FIELD(T, t, reserved);
 		ASSERT_OFFSET_CHECKPOINT(T, 17 * CACHELINE_SIZE);
 		ASSERT_ALIGNED_FIELD(T, t, my_segment_enable_mutex);
@@ -151,7 +154,7 @@ struct hashmap_test : public MapType {
 		map->layout_features.incompat = static_cast<uint32_t>(-1);
 
 		try {
-			map->runtime_initialize(true);
+			map->runtime_initialize();
 			UT_ASSERT(0);
 		} catch (pmem::layout_error &) {
 		} catch (...) {
@@ -159,7 +162,7 @@ struct hashmap_test : public MapType {
 		}
 
 		try {
-			map->runtime_initialize(false);
+			map->runtime_initialize();
 			UT_ASSERT(0);
 		} catch (pmem::layout_error &) {
 		} catch (...) {

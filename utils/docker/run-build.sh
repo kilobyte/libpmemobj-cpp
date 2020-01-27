@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright 2016-2019, Intel Corporation
+# Copyright 2016-2020, Intel Corporation
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -37,7 +37,13 @@
 
 set -e
 
+CHECK_CPP_STYLE=${CHECK_CPP_STYLE:-ON}
+TESTS_LONG=${TESTS_LONG:-OFF}
+TESTS_TBB=${TESTS_TBB:-ON}
+
 export PMREORDER_STACKTRACE_DEPTH=20
+
+./prepare-for-build.sh
 
 function cleanup() {
 	find . -name ".coverage" -exec rm {} \;
@@ -101,17 +107,22 @@ function tests_clang_debug_cpp17_no_valgrind() {
 	PKG_CONFIG_PATH=/opt/pmdk/lib/pkgconfig/ \
 	CC=clang CXX=clang++ \
 	cmake .. -DDEVELOPER_MODE=1 \
-				-DCMAKE_BUILD_TYPE=Debug \
-				-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
-				-DTRACE_TESTS=1 \
-				-DCOVERAGE=$COVERAGE \
-				-DCXX_STANDARD=17 \
-				-DTESTS_USE_VALGRIND=0 \
-				-DTEST_DIR=/mnt/pmem \
-				-DTESTS_USE_FORCED_PMEM=1
+		-DCHECK_CPP_STYLE=${CHECK_CPP_STYLE} \
+		-DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
+		-DTRACE_TESTS=1 \
+		-DCOVERAGE=$COVERAGE \
+		-DCXX_STANDARD=17 \
+		-DTESTS_USE_VALGRIND=0 \
+		-DTESTS_LONG=${TESTS_LONG} \
+		-DTESTS_TBB=${TESTS_TBB} \
+		-DTEST_DIR=/mnt/pmem \
+		-DTESTS_USE_FORCED_PMEM=1
+		# Currently 1.8 does not compile with clang
+		# -DTESTS_COMPATIBILITY=1
 
 	make -j$(nproc)
-	ctest --output-on-failure -E "_pmreorder"  --timeout 540
+	ctest --output-on-failure -E "_pmreorder" --timeout 590
 	if [ "$COVERAGE" == "1" ]; then
 		upload_codecov tests_clang_debug_cpp17
 	fi
@@ -121,64 +132,103 @@ function tests_clang_debug_cpp17_no_valgrind() {
 	printf "$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} END$(tput sgr 0)\n\n"
 }
 ###############################################################################
-# BUILD tests_gcc_debug
+# BUILD tests_clang_release_cpp11 llvm
 ###############################################################################
-function build_gcc_debug() {
+function tests_clang_release_cpp11_no_valgrind() {
+	printf "\n$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} START$(tput sgr 0)\n"
+	mkdir build
+	cd build
+
+	PKG_CONFIG_PATH=/opt/pmdk/lib/pkgconfig/ \
+	CC=clang CXX=clang++ \
+	cmake .. -DDEVELOPER_MODE=1 \
+		-DCHECK_CPP_STYLE=${CHECK_CPP_STYLE} \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
+		-DTRACE_TESTS=1 \
+		-DCOVERAGE=$COVERAGE \
+		-DCXX_STANDARD=11 \
+		-DTESTS_USE_VALGRIND=0 \
+		-DTESTS_LONG=${TESTS_LONG} \
+		-DTEST_DIR=/mnt/pmem \
+		-DTESTS_USE_FORCED_PMEM=1
+		# Currently 1.8 does not compile with clang
+		# -DTESTS_COMPATIBILITY=1
+
+	make -j$(nproc)
+	ctest --output-on-failure -E "_pmreorder"  --timeout 540
+	if [ "$COVERAGE" == "1" ]; then
+		upload_codecov tests_clang_release_cpp11
+	fi
+
+	cd ..
+	rm -r build
+	printf "$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} END$(tput sgr 0)\n\n"
+}
+###############################################################################
+# BUILD tests_gcc_debug_cpp14
+###############################################################################
+function build_gcc_debug_cpp14() {
 	mkdir build
 	cd build
 
 	PKG_CONFIG_PATH=/opt/pmdk/lib/pkgconfig/ \
 	CC=gcc CXX=g++ \
 	cmake .. -DDEVELOPER_MODE=1 \
-				-DCMAKE_BUILD_TYPE=Debug \
-				-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
-				-DTRACE_TESTS=1 \
-				-DCOVERAGE=$COVERAGE \
-				-DTESTS_USE_VALGRIND=1 \
-				-DTEST_DIR=/mnt/pmem \
-				-DTESTS_USE_FORCED_PMEM=1 \
-				-DTESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND=1
+		-DCHECK_CPP_STYLE=${CHECK_CPP_STYLE} \
+		-DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
+		-DTRACE_TESTS=1 \
+		-DCOVERAGE=$COVERAGE \
+		-DCXX_STANDARD=14 \
+		-DTESTS_USE_VALGRIND=1 \
+		-DTESTS_LONG=${TESTS_LONG} \
+		-DTESTS_TBB=${TESTS_TBB} \
+		-DTEST_DIR=/mnt/pmem \
+		-DTESTS_USE_FORCED_PMEM=1 \
+		-DTESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND=1 \
+		-DTESTS_COMPATIBILITY=1
 
 	make -j$(nproc)
 }
 
 ###############################################################################
-# BUILD tests_gcc_debug_no_valgrind
+# BUILD tests_gcc_debug_cpp14_no_valgrind
 ###############################################################################
-function tests_gcc_debug_no_valgrind() {
+function tests_gcc_debug_cpp14_no_valgrind() {
 	printf "\n$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} START$(tput sgr 0)\n"
-	build_gcc_debug
-	ctest -E "_memcheck|_drd|_helgrind|_pmemcheck|_pmreorder" --timeout 540 --output-on-failure
+	build_gcc_debug_cpp14
+	ctest -E "_memcheck|_drd|_helgrind|_pmemcheck|_pmreorder" --timeout 590 --output-on-failure
 	if [ "$COVERAGE" == "1" ]; then
 		upload_codecov tests_gcc_debug
 	fi
 	cd ..
-	rm -r build
+	rm -rf build
 	printf "$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} END$(tput sgr 0)\n\n"
 }
 
 ###############################################################################
-# BUILD tests_gcc_debug_valgrind_memcheck_drd
+# BUILD tests_gcc_debug_cpp14_valgrind_memcheck_drd
 ###############################################################################
-function tests_gcc_debug_valgrind_memcheck_drd() {
+function tests_gcc_debug_cpp14_valgrind_memcheck_drd() {
 	printf "\n$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} START$(tput sgr 0)\n"
-	build_gcc_debug
-	ctest -R "_memcheck|_drd" --timeout 700 --output-on-failure
+	build_gcc_debug_cpp14
+	ctest -R "_memcheck|_drd" --timeout 590 --output-on-failure
 	cd ..
-	rm -r build
+	rm -rf build
 	printf "$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} END$(tput sgr 0)\n\n"
 }
 
 ###############################################################################
-# BUILD tests_gcc_debug_valgrind_other
+# BUILD tests_gcc_debug_cpp14_valgrind_other
 ###############################################################################
-function tests_gcc_debug_valgrind_other() {
+function tests_gcc_debug_cpp14_valgrind_other() {
 	printf "\n$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} START$(tput sgr 0)\n"
-	build_gcc_debug
-	ctest -E "_none|_memcheck|_drd" --timeout 540 --output-on-failure
-	ctest -R "_pmreorder" --timeout 540 --output-on-failure
+	build_gcc_debug_cpp14
+	ctest -E "_none|_memcheck|_drd" --timeout 590 --output-on-failure
+	ctest -R "_pmreorder" --timeout 590 --output-on-failure
 	cd ..
-	rm -r build
+	rm -rf build
 	printf "$(tput setaf 1)$(tput setab 7)BUILD ${FUNCNAME[0]} END$(tput sgr 0)\n\n"
 }
 
@@ -190,7 +240,8 @@ function tests_gcc_release_cpp17_no_valgrind() {
 	# It is a test of the build system: move valgrind to other location and build with
 	# TESTS_USE_VALGRIND=1. Expected behaviour is to get tests with suffix
 	# _SKIPPED_BECAUSE_OF_MISSING_VALGRIND
-	VALGRIND_PC_PATH=$(find /usr -name "valgrind.pc")
+	VALGRIND_PC_PATH=$(find /usr -name "valgrind.pc" 2>/dev/null || true)
+	[ "$VALGRIND_PC_PATH" == "" ] && echo "Error: cannot find 'valgrind.pc' file" && exit 1
 	sudo_password mv $VALGRIND_PC_PATH tmp_valgrind_pc
 	mkdir build
 	cd build
@@ -198,18 +249,21 @@ function tests_gcc_release_cpp17_no_valgrind() {
 	PKG_CONFIG_PATH=/opt/pmdk/lib/pkgconfig/ \
 	CC=gcc CXX=g++ \
 	cmake .. -DDEVELOPER_MODE=1 \
-				-DCMAKE_BUILD_TYPE=Release \
-				-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
-				-DTRACE_TESTS=1 \
-				-DCOVERAGE=$COVERAGE \
-				-DCXX_STANDARD=17 \
-				-DTESTS_USE_VALGRIND=1 \
-				-DTEST_DIR=/mnt/pmem \
-				-DBUILD_EXAMPLES=0 \
-				-DTESTS_USE_FORCED_PMEM=1
+		-DCHECK_CPP_STYLE=${CHECK_CPP_STYLE} \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
+		-DTRACE_TESTS=1 \
+		-DCOVERAGE=$COVERAGE \
+		-DCXX_STANDARD=17 \
+		-DTESTS_USE_VALGRIND=1 \
+		-DTESTS_LONG=${TESTS_LONG} \
+		-DTESTS_TBB=${TESTS_TBB} \
+		-DTEST_DIR=/mnt/pmem \
+		-DBUILD_EXAMPLES=0 \
+		-DTESTS_USE_FORCED_PMEM=1
 
 	make -j$(nproc)
-	ctest --output-on-failure --timeout 540
+	ctest --output-on-failure --timeout 590
 	if [ "$COVERAGE" == "1" ]; then
 		upload_codecov tests_gcc_release_cpp17_no_valgrind
 	fi
@@ -237,12 +291,15 @@ function tests_package() {
 
 	CC=gcc CXX=g++ \
 	cmake .. -DCMAKE_INSTALL_PREFIX=/usr \
-			-DTESTS_USE_VALGRIND=0 \
-			-DBUILD_EXAMPLES=0 \
-			-DCPACK_GENERATOR=$PACKAGE_MANAGER
+		-DTESTS_USE_VALGRIND=0 \
+		-DTESTS_LONG=OFF \
+		-DTESTS_TBB=OFF \
+		-DBUILD_EXAMPLES=0 \
+		-DCPACK_GENERATOR=$PACKAGE_MANAGER \
+		-DTESTS_USE_FORCED_PMEM=1
 
 	make -j$(nproc)
-	ctest --output-on-failure --timeout 540
+	ctest --output-on-failure --timeout 590
 
 	make -j$(nproc) package
 
@@ -288,11 +345,14 @@ function tests_findLIBPMEMOBJ_cmake()
 
 	CC=gcc CXX=g++ \
 	cmake .. -DCMAKE_BUILD_TYPE=Release \
-				-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
-				-DTRACE_TESTS=1 \
-				-DBUILD_EXAMPLES=0 \
-				-DCOVERAGE=$COVERAGE \
-				-DCXX_STANDARD=17
+		-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR \
+		-DTESTS_TBB=OFF \
+		-DTESTS_LONG=OFF \
+		-DTRACE_TESTS=1 \
+		-DBUILD_EXAMPLES=0 \
+		-DCOVERAGE=$COVERAGE \
+		-DCXX_STANDARD=17 \
+		-DTESTS_USE_FORCED_PMEM=1
 
 	make -j$(nproc)
 

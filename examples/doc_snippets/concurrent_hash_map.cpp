@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Intel Corporation
+ * Copyright 2019-2020, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,6 +49,7 @@ using namespace pmem::obj;
 using hashmap_type = concurrent_hash_map<p<int>, p<int>>;
 
 const int THREADS_NUM = 30;
+const bool remove_hashmap = true;
 
 // This is basic example and we only need to use concurrent_hash_map. Hence we
 // will correlate memory pool root object with single instance of persistent
@@ -81,6 +82,9 @@ main(int argc, char *argv[])
 		// recalculate mask and check for consistentcy.
 
 		pop.root()->pptr->runtime_initialize();
+
+		// defragment the whole pool at the beginning
+		pop.root()->pptr->defragment();
 	}
 
 	auto &map = *pop.root()->pptr;
@@ -130,10 +134,27 @@ main(int argc, char *argv[])
 		t.join();
 	}
 
+	// defragment the whole pool at the end
+	map.defragment();
+
 	// Erase remaining itemes in map. This function is not thread-safe,
 	// hence the function is being called only after thread execution has
 	// completed.
 	map.clear();
+
+	// If hash map is to be removed, free_data() method should be called
+	// first. Otherwise, if deallocating internal hash map metadata in
+	// a destructor fail program might terminate.
+	if (remove_hashmap) {
+		map.free_data();
+
+		// map.clear() // WRONG
+		// After free_data() concurrent hash map cannot be used anymore!
+
+		transaction::run(pop, [&] {
+			delete_persistent<hashmap_type>(pop.root()->pptr);
+		});
+	}
 
 	pop.close();
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019, Intel Corporation
+ * Copyright 2018-2020, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -82,6 +82,9 @@ public:
 	using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 	using range_snapshotting_iterator =
 		pmem::detail::range_snapshotting_iterator<T>;
+	/* func argument type definition for 'for_each_ptr' method */
+	using for_each_ptr_function =
+		std::function<void(persistent_ptr_base &)>;
 
 	/* Constructors */
 	vector();
@@ -154,6 +157,7 @@ public:
 						 size_type snapshot_size);
 	slice<const_iterator> range(size_type start, size_type n) const;
 	slice<const_iterator> crange(size_type start, size_type n) const;
+	void for_each_ptr(for_each_ptr_function func);
 
 	/* Capacity */
 	constexpr bool empty() const noexcept;
@@ -1924,7 +1928,7 @@ vector<T>::push_back(value_type &&value)
  * @post size() == std::max(0, size() - 1)
  *
  * @throw transaction_error when snapshotting failed.
- * @throw rethrows desctructor exception.
+ * @throw rethrows destructor exception.
  */
 template <typename T>
 void
@@ -2018,6 +2022,19 @@ vector<T>::swap(vector &other)
 		std::swap(this->_size, other._size);
 		std::swap(this->_capacity, other._capacity);
 	});
+}
+
+/**
+ * Iterates over all internal pointers and executes a callback function
+ * on each of them. In this implementation, it is just a single pointer.
+ *
+ * @param func callback function to call on internal pointer.
+ */
+template <typename T>
+void
+vector<T>::for_each_ptr(for_each_ptr_function func)
+{
+	func(_data);
 }
 
 /**
@@ -2343,7 +2360,7 @@ vector<T>::internal_insert(size_type idx, InputIt first, InputIt last)
 		/* Insert (first, last) range to the new array */
 		construct_at_end(first, last);
 
-		/* Move remaining element ot the new array */
+		/* Move remaining element to the new array */
 		construct_at_end(std::make_move_iterator(old_mid),
 				 std::make_move_iterator(old_end));
 

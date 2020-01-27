@@ -163,9 +163,29 @@ function(build_test name)
 	add_dependencies(tests ${name})
 endfunction()
 
+# Function to build a test with mocked pmemobj_defrag() function
+function(build_test_defrag name)
+	build_test(${name} ${ARGN})
+	if (NOT WIN32)
+		# target_link_options() should be used below,
+		# but it is available since CMake v3.13
+		target_link_libraries(${name} "-Wl,--wrap=pmemobj_defrag")
+	endif()
+endfunction()
+
 function(build_test_tbb name)
 	build_test(${name} ${ARGN})
 	target_link_libraries(${name} ${TBB_LIBRARIES})
+endfunction()
+
+# Function to build a TBB test with mocked pmemobj_defrag() function
+function(build_test_tbb_defrag name)
+	build_test_tbb(${name} ${ARGN})
+	if (NOT WIN32)
+		# target_link_options() should be used below,
+		# but it is available since CMake v3.13
+		target_link_libraries(${name} "-Wl,--wrap=pmemobj_defrag")
+	endif()
 endfunction()
 
 set(vg_tracers memcheck helgrind drd pmemcheck)
@@ -255,15 +275,22 @@ function(add_test_common name tracer testcase cmake_script)
 endfunction()
 
 function(add_test_generic)
-	set(oneValueArgs NAME CASE)
+	set(oneValueArgs NAME CASE SCRIPT)
 	set(multiValueArgs TRACERS)
 	cmake_parse_arguments(TEST "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-	if("${TEST_CASE}" STREQUAL "")
-		set(TEST_CASE "0")
-		set(cmake_script ${CMAKE_CURRENT_SOURCE_DIR}/run_default.cmake)
+	if("${TEST_SCRIPT}" STREQUAL "")
+		if("${TEST_CASE}" STREQUAL "")
+			set(TEST_CASE "0")
+			set(cmake_script ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_default.cmake)
+		else()
+			set(cmake_script ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}/${TEST_NAME}_${TEST_CASE}.cmake)
+		endif()
 	else()
-		set(cmake_script ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}/${TEST_NAME}_${TEST_CASE}.cmake)
+		if("${TEST_CASE}" STREQUAL "")
+			set(TEST_CASE "0")
+		endif()
+		set(cmake_script ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_SCRIPT})
 	endif()
 
 	foreach(tracer ${TEST_TRACERS})

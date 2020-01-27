@@ -33,9 +33,9 @@ cmake_minimum_required(VERSION 3.3)
 project(libpmemobj-cpp C CXX)
 
 set(VERSION_MAJOR 1)
-set(VERSION_MINOR 8)
-set(VERSION_PATCH 1)
-#set(VERSION_PRERELEASE rc1)
+set(VERSION_MINOR 9)
+set(VERSION_PATCH 0)
+set(VERSION_PRERELEASE rc1)
 
 set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR})
 if (VERSION_PATCH GREATER 0)
@@ -53,7 +53,7 @@ set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
 # Treat CMAKE_CXX_STANDARD as a requirement
 set(CXX_STANDARD_REQUIRED ON)
 
-set(CXX_STANDARD 11 CACHE STRING "C++ language standard")
+set(CXX_STANDARD 14 CACHE STRING "C++ language standard")
 set(CMAKE_CXX_STANDARD ${CXX_STANDARD})
 
 include(FindPerl)
@@ -68,10 +68,12 @@ include(${CMAKE_SOURCE_DIR}/cmake/functions.cmake)
 option(BUILD_EXAMPLES "build examples" ON)
 option(BUILD_TESTS "build tests" ON)
 option(BUILD_DOC "build documentation" ON)
+option(BUILD_BENCHMARKS "build benchmarks" ON)
 
 option(COVERAGE "run coverage test" OFF)
 option(DEVELOPER_MODE "enable developer checks" OFF)
-
+option(CHECK_CPP_STYLE "check code style of C++ sources" OFF)
+option(TRACE_TESTS "more verbose test outputs" OFF)
 option(USE_ASAN "enable AddressSanitizer (debugging)" OFF)
 option(USE_UBSAN "enable UndefinedBehaviorSanitizer (debugging)" OFF)
 
@@ -79,17 +81,27 @@ option(TESTS_USE_FORCED_PMEM "run tests with PMEM_IS_PMEM_FORCE=1" OFF)
 option(TESTS_USE_VALGRIND "enable tests with valgrind (if found)" ON)
 option(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND "enable concurrent_hash_map tests with drd and helgrind (can only be run on PMEM)." OFF)
 option(TESTS_LONG "enable long running tests" OFF)
-option(TRACE_TESTS "more verbose test outputs" OFF)
+option(TESTS_TBB "enable tests which require TBB" OFF)
+option(TESTS_COMPATIBILITY "enable compatibility tests (requires internet connection)" OFF)
 
-option(ENABLE_ARRAY "enable installation and testing of pmem::obj::array" ON)
-option(ENABLE_VECTOR "enable installation and testing of pmem::obj::vector" ON)
-option(ENABLE_STRING "enable installation and testing of pmem::obj::string (depends on ENABLE_VECTOR)" ON)
-option(ENABLE_CONCURRENT_HASHMAP "enable installation and testing of pmem::obj::concurrent_hash_map (depends on ENABLE_STRING)" ON)
-option(ENABLE_SEGMENT_VECTOR "enable installation of pmem::obj::experimental::segment_vector" ON)
-option(ENABLE_SEGMENT_VECTOR_ARRAY_EXPSIZE "enable testing of pmem::obj::experimental::segment_vector with array as segment_vector_type and exponential_size_policy" ON)
-option(ENABLE_SEGMENT_VECTOR_VECTOR_EXPSIZE "enable testing of pmem::obj::experimental::segment_vector with vector as segment_vector_type and exponential_size_policy" OFF)
-option(ENABLE_SEGMENT_VECTOR_ARRAY_FIXEDSIZE "enable testing of pmem::obj::experimental::segment_vector with array as segment_vector_type and fixed_size_policy" OFF)
-option(ENABLE_SEGMENT_VECTOR_VECTOR_FIXEDSIZE "enable testing of pmem::obj::experimental::segment_vector with vector as segment_vector_type and fixed_size_policy" ON)
+option(TEST_ARRAY "enable testing of pmem::obj::array" ON)
+option(TEST_VECTOR "enable testing of pmem::obj::vector" ON)
+option(TEST_STRING "enable testing of pmem::obj::string (depends on TEST_VECTOR)" ON)
+option(TEST_CONCURRENT_HASHMAP "enable testing of pmem::obj::concurrent_hash_map (depends on TEST_STRING)" ON)
+option(TEST_SEGMENT_VECTOR_ARRAY_EXPSIZE "enable testing of pmem::obj::segment_vector with array as segment_vector_type and exponential_size_policy" ON)
+option(TEST_SEGMENT_VECTOR_VECTOR_EXPSIZE "enable testing of pmem::obj::segment_vector with vector as segment_vector_type and exponential_size_policy" ON)
+option(TEST_SEGMENT_VECTOR_VECTOR_FIXEDSIZE "enable testing of pmem::obj::segment_vector with vector as segment_vector_type and fixed_size_policy" ON)
+option(TEST_ENUMERABLE_THREAD_SPECIFIC "enable testing of pmem::obj::experimental::enumerable_thread_specific" ON)
+
+option(INSTALL_ARRAY "enable installation of pmem::obj::array" ON)
+option(INSTALL_VECTOR "enable installation of pmem::obj::vector" ON)
+option(INSTALL_STRING "enable installation of pmem::obj::string (depends on INSTALL_VECTOR)" ON)
+option(INSTALL_CONCURRENT_HASHMAP "enable installation of pmem::obj::concurrent_hash_map (depends on INSTALL_STRING and INSTALL_SEGMENT_VECTOR)" ON)
+option(INSTALL_SEGMENT_VECTOR "enable installation of pmem::obj::segment_vector" ON)
+
+# Do not treat include directories from the interfaces
+# of consumed Imported Targets as SYSTEM by default.
+set(CMAKE_NO_SYSTEM_FROM_IMPORTED 1)
 
 # Required for MSVC to correctly define __cplusplus
 add_flag("/Zc:__cplusplus")
@@ -140,7 +152,7 @@ endif()
 set(CLANG_REQUIRED_BY_DESTRUCTOR_REFERENCE_BUG "8.0")
 find_program(CLANG NAMES clang)
 if(CLANG)
-	get_program_version(${CLANG} CLANG_VERSION)
+	get_program_version_major_minor(${CLANG} CLANG_VERSION)
 	if(CLANG_VERSION VERSION_LESS CLANG_REQUIRED_BY_DESTRUCTOR_REFERENCE_BUG)
 		set(CLANG_DESTRUCTOR_REFERENCE_BUG_PRESENT 1)
 	endif()
@@ -189,8 +201,7 @@ add_custom_target(check-license
 	COMMAND ${CMAKE_SOURCE_DIR}/utils/check_license/check-headers.sh
 		${CMAKE_SOURCE_DIR}
 		${CMAKE_BINARY_DIR}/check_license
-		${CMAKE_SOURCE_DIR}/LICENSE
-		-a)
+		${CMAKE_SOURCE_DIR}/LICENSE)
 add_dependencies(check-license check_license)
 
 add_custom_target(check-whitespace-main
@@ -203,20 +214,21 @@ add_dependencies(check-whitespace check-whitespace-main)
 
 add_custom_target(tests)
 
-if(DEVELOPER_MODE)
-	add_flag(-Werror) # XXX: WX for windows
-	find_program(CLANG_FORMAT NAMES clang-format clang-format-8.0)
-	set(CLANG_FORMAT_REQUIRED "8.0")
+if(CHECK_CPP_STYLE)
+	find_program(CLANG_FORMAT NAMES clang-format clang-format-9.0)
+	set(CLANG_FORMAT_REQUIRED "9.0")
 	if(CLANG_FORMAT)
-		get_program_version(${CLANG_FORMAT} CLANG_FORMAT_VERSION)
+		get_program_version_major_minor(${CLANG_FORMAT} CLANG_FORMAT_VERSION)
 		if(NOT (CLANG_FORMAT_VERSION VERSION_EQUAL CLANG_FORMAT_REQUIRED))
-			message(WARNING "required clang-format version is ${CLANG_FORMAT_REQUIRED}")
-			unset(CLANG_FORMAT CACHE)
+			message(FATAL_ERROR "required clang-format version is ${CLANG_FORMAT_REQUIRED} (found version: ${CLANG_FORMAT_VERSION})")
 		endif()
 	else()
-		message(WARNING "clang-format not found - C++ sources will not be checked (needed version: ${CLANG_FORMAT_REQUIRED})")
+		message(WARNING "clang-format not found - C++ sources will not be checked (required version: ${CLANG_FORMAT_REQUIRED})")
 	endif()
+endif()
 
+if(DEVELOPER_MODE)
+	add_flag(-Werror) # XXX: WX for windows
 	execute_process(COMMAND ${PERL_EXECUTABLE} -MText::Diff -e ""
 			ERROR_QUIET
 			RESULT_VARIABLE PERL_TEXT_DIFF_STATUS)
@@ -242,20 +254,6 @@ add_check_whitespace(include-experimental ${CMAKE_CURRENT_SOURCE_DIR}/include/li
 add_check_whitespace(cmake-main ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt)
 add_check_whitespace(cmake-helpers ${CMAKE_CURRENT_SOURCE_DIR}/cmake/*.cmake)
 
-# Check for existence of pmemvlt (introduced after 1.4 release)
-set(SAVED_CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES})
-set(CMAKE_REQUIRED_INCLUDES ${LIBPMEMOBJ_INCLUDE_DIRS})
-CHECK_CXX_SOURCE_COMPILES(
-	"#include <libpmemobj.h>
-	struct pmemvlt vlt;
-	int main() {}"
-	PMEMVLT_PRESENT)
-set(CMAKE_REQUIRED_INCLUDES ${SAVED_CMAKE_REQUIRED_INCLUDES})
-
-if(NOT PMEMVLT_PRESENT)
-	message(WARNING "pmemvlt support in libpmemobj not found (to enable - use libpmemobj version > 1.4")
-endif()
-
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.hpp.in
 		${CMAKE_SOURCE_DIR}/include/libpmemobj++/version.hpp @ONLY)
 
@@ -268,31 +266,33 @@ install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 	PATTERN "contiguous_iterator.hpp" EXCLUDE
 	PATTERN "slice.hpp" EXCLUDE
 	PATTERN "concurrent_hash_map.hpp" EXCLUDE
-	PATTERN "segment_vector.hpp" EXCLUDE)
+	PATTERN "segment_vector.hpp" EXCLUDE
+	PATTERN "enumerable_thread_specific.hpp" EXCLUDE)
 
-if (ENABLE_ARRAY)
+if(INSTALL_ARRAY)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "array.hpp")
 endif()
 
-if (ENABLE_VECTOR)
+if(INSTALL_VECTOR)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "vector.hpp")
 endif()
 
-if (ENABLE_STRING)
+if(INSTALL_STRING)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "basic_string.hpp")
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "string.hpp")
 endif()
 
-if (ENABLE_CONCURRENT_HASHMAP)
+if(INSTALL_CONCURRENT_HASHMAP)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "concurrent_hash_map.hpp")
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "enumerable_thread_specific.hpp")
 endif()
 
-if (ENABLE_ARRAY OR ENABLE_VECTOR OR ENABLE_STRING)
+if(INSTALL_ARRAY OR INSTALL_VECTOR OR INSTALL_STRING)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "contiguous_iterator.hpp")
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "slice.hpp")
 endif()
 
-if (ENABLE_SEGMENT_VECTOR)
+if(INSTALL_SEGMENT_VECTOR)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "segment_vector.hpp")
 endif()
 
@@ -327,7 +327,7 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libpmemobj++-config.cmake ${CMAKE_CURR
 
 include_directories(include)
 
-include(${CMAKE_SOURCE_DIR}/cmake/check_compiler_issues.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/check_compiling_issues.cmake)
 
 if(PKG_CONFIG_FOUND)
 	pkg_check_modules(VALGRIND QUIET valgrind)
@@ -360,6 +360,10 @@ endif()
 
 if(BUILD_DOC)
 	add_subdirectory(doc)
+endif()
+
+if (BUILD_BENCHMARKS)
+	add_subdirectory(benchmarks)
 endif()
 
 if(BUILD_EXAMPLES AND NO_GCC_VARIADIC_TEMPLATE_BUG)

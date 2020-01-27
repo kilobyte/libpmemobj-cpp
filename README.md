@@ -2,7 +2,8 @@ libpmemobj-cpp
 ===============
 
 [![Build Status](https://travis-ci.org/pmem/libpmemobj-cpp.svg?branch=master)](https://travis-ci.org/pmem/libpmemobj-cpp)
-[![Build status](https://ci.appveyor.com/api/projects/status/github/pmem/libpmemobj-cpp?branch/master?svg=true&pr=false)](https://ci.appveyor.com/project/pmem/libpmemobj-cpp/branch/master)
+[![Build status](https://github.com/pmem/libpmemobj-cpp/workflows/CPP/badge.svg)](https://github.com/pmem/libpmemobj-cpp/actions)
+[![libpmemobj-cpp version](https://img.shields.io/github/tag/pmem/libpmemobj-cpp.svg)](https://github.com/pmem/libpmemobj-cpp/releases/latest)
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/15911/badge.svg)](https://scan.coverity.com/projects/pmem-libpmemobj-cpp)
 [![Coverage Status](https://codecov.io/github/pmem/libpmemobj-cpp/coverage.svg?branch=master)](https://codecov.io/gh/pmem/libpmemobj-cpp/branch/master)
 
@@ -13,8 +14,14 @@ More information in include/libpmemobj++/README.md
 
 ## Requirements: ##
 - cmake >= 3.3
-- libpmemobj-dev(el) >= 1.7 (http://pmem.io/pmdk/)
-- compiler with C++11 support
+- libpmemobj-dev(el) >= 1.7 (https://pmem.io/pmdk/)
+- compiler with C++11 support:
+	- gcc >= 4.8.5 (C++11 is supported in gcc since version 4.8.5, but it does not support expanding variadic template variables in lambda expressions, which is required to build persistent containers and possible with gcc >= 4.9.0. If you want to build libpmemobj-cpp without testing containers, use flag TEST_XXX=OFF (separate flag for each container))
+	- clang >= 3.3
+- for testing and development:
+	- valgrind-devel (at best with [pmemcheck support](https://github.com/pmem/valgrind))
+	- clang format 9.0
+	- perl
 
 ## On Linux ##
 
@@ -29,7 +36,7 @@ $ make install
 #### When developing: ####
 ```sh
 $ ...
-$ cmake .. -DCMAKE_BUILD_TYPE=Debug -DDEVELOPER_MODE=1
+$ cmake .. -DCMAKE_BUILD_TYPE=Debug -DDEVELOPER_MODE=1 -DCHECK_CPP_STYLE=1
 $ ...
 $ ctest --output-on-failure
 ```

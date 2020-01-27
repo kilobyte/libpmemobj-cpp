@@ -102,13 +102,13 @@ endfunction()
 add_executable(check_is_pmem check_is_pmem/check_is_pmem.cpp)
 target_link_libraries(check_is_pmem ${LIBPMEM_LIBRARIES})
 
-if(NO_GCC_VARIADIC_TEMPLATE_BUG)
+if(BUILD_EXAMPLES AND NO_GCC_VARIADIC_TEMPLATE_BUG)
 	build_example_queue()
 	add_test_generic(NAME ex-queue CASE 0 TRACERS none)
 
 	build_example_pman()
 	add_test_generic(NAME ex-pman CASE 0 TRACERS none)
-else()
+elseif(BUILD_EXAMPLES)
 	message(WARNING "Skipping examples tests because of gcc variadic template bug")
 	skip_test("examples_tests" "SKIPPED_BECAUSE_OF_GCC_VARIADIC_TEMPLATE_BUG")
 endif()
@@ -145,10 +145,15 @@ add_test_generic(NAME pool CASE 4 TRACERS none)
 add_test_generic(NAME pool CASE 5 TRACERS none)
 
 build_test(pool_primitives pool_primitives/pool_primitives.cpp)
-add_test_generic(NAME pool_primitives CASE 0 TRACERS none pmemcheck)
+add_test_generic(NAME pool_primitives CASE 0 TRACERS none pmemcheck
+		SCRIPT cmake/common_0.cmake)
 
 build_test(ptr ptr/ptr.cpp)
-add_test_generic(NAME ptr CASE 0 TRACERS none pmemcheck)
+add_test_generic(NAME ptr CASE 0 TRACERS none pmemcheck
+		SCRIPT cmake/common_0.cmake)
+
+build_test(pair pair/pair.cpp)
+add_test_generic(NAME pair TRACERS none memcheck)
 
 build_test(ptr_arith ptr_arith/ptr_arith.cpp)
 add_test_generic(NAME ptr_arith TRACERS memcheck pmemcheck)
@@ -164,7 +169,12 @@ build_test(shared_mutex_posix shared_mutex_posix/shared_mutex_posix.cpp)
 add_test_generic(NAME shared_mutex_posix TRACERS drd helgrind pmemcheck)
 
 build_test(transaction transaction/transaction.cpp)
-add_test_generic(NAME transaction TRACERS none pmemcheck)
+add_test_generic(NAME transaction TRACERS none pmemcheck memcheck)
+
+if (VOLATILE_STATE_PRESENT)
+	build_test(volatile_state volatile_state/volatile_state.cpp)
+	add_test_generic(NAME volatile_state TRACERS none pmemcheck memcheck drd helgrind)
+endif()
 
 if(WIN32)
 	build_test(pool_win pool_win/pool_win.cpp)
@@ -176,7 +186,8 @@ endif()
 
 if(PMEMVLT_PRESENT)
 	build_test(v v/v.cpp)
-	add_test_generic(NAME v CASE 0 TRACERS none memcheck)
+	add_test_generic(NAME v CASE 0 TRACERS none memcheck
+			SCRIPT cmake/common_0.cmake)
 else()
 	message(WARNING "Skipping v test because no pmemvlt support found")
 	skip_test("v" "SKIPPED_BECAUSE_OF_MISSING_PMEMVLT")
@@ -216,18 +227,26 @@ else()
 	skip_test("make_persistent_array" "SKIPPED_BECAUSE_OF_CLANG_TEMPLATE_BUG")
 endif()
 
+build_test(pool_cleanup pool_cleanup/pool_cleanup.cpp)
+add_test_generic(NAME pool_cleanup TRACERS none pmemcheck memcheck drd helgrind CASE 0)
+
 build_test(iterator_traits iterator_traits/iterator_traits.cpp)
 add_test_generic(NAME iterator_traits TRACERS none)
 
 build_test(ctl ctl/ctl.cpp)
-add_test_generic(NAME ctl CASE 0 TRACERS none)
+add_test_generic(NAME ctl CASE 0 TRACERS none
+		SCRIPT ctl/ctl_0.cmake)
+
+build_test(defrag defrag/defrag.cpp)
+add_test_generic(NAME defrag TRACERS none pmemcheck memcheck)
 
 if(WIN32)
 	build_test(ctl_win ctl_win/ctl_win.cpp)
-	add_test_generic(NAME ctl_win CASE 0 TRACERS none)
+	add_test_generic(NAME ctl_win CASE 0 TRACERS none
+			SCRIPT ctl/ctl_0.cmake)
 endif()
 
-if (ENABLE_ARRAY)
+if (TEST_ARRAY)
 	build_test(array_algorithms array_algorithms/array_algorithms.cpp)
 	add_test_generic(NAME array_algorithms TRACERS none pmemcheck)
 
@@ -253,7 +272,7 @@ if (ENABLE_ARRAY)
 	endif()
 endif()
 
-if (ENABLE_VECTOR)
+if (TEST_VECTOR)
 	build_test_ext(NAME vector_temp_value SRC_FILES temp_value/temp_value.cpp BUILD_OPTIONS -DVECTOR)
 	add_test_generic(NAME vector_temp_value TRACERS none pmemcheck memcheck)
 
@@ -327,11 +346,17 @@ if (ENABLE_VECTOR)
 	build_test_ext(NAME vector_range SRC_FILES vector_range/vector_range.cpp BUILD_OPTIONS -DVECTOR)
 	add_test_generic(NAME vector_range TRACERS none memcheck pmemcheck)
 
+	build_test_ext(NAME vector_parameters SRC_FILES vector_parameters/vector_parameters.cpp BUILD_OPTIONS -DVECTOR)
+	add_test_generic(NAME vector_parameters TRACERS none memcheck pmemcheck)
+
 	build_test_ext(NAME vector_layout SRC_FILES vector_layout/vector_layout.cpp BUILD_OPTIONS -DVECTOR)
 	add_test_generic(NAME vector_layout TRACERS none)
+
+	build_test(defrag_vector defrag/defrag_vector.cpp)
+	add_test_generic(NAME defrag_vector TRACERS none pmemcheck memcheck)
 endif()
 
-if (ENABLE_STRING)
+if (TEST_STRING)
 	build_test(string_access string_access/string_access.cpp)
 	add_test_generic(NAME string_access TRACERS none memcheck pmemcheck)
 
@@ -354,35 +379,108 @@ if (ENABLE_STRING)
 	add_test_generic(NAME string_layout TRACERS none)
 endif()
 
-if(PMEMVLT_PRESENT AND ENABLE_CONCURRENT_HASHMAP)
+if(TEST_CONCURRENT_HASHMAP)
 	build_test(concurrent_hash_map_tx concurrent_hash_map_tx/concurrent_hash_map_tx.cpp)
 	add_test_generic(NAME concurrent_hash_map_tx TRACERS none memcheck pmemcheck)
 
+	build_test(concurrent_hash_map_insert_or_assign concurrent_hash_map_insert_or_assign/concurrent_hash_map_insert_or_assign.cpp)
+	add_test_generic(NAME concurrent_hash_map_insert_or_assign TRACERS none memcheck pmemcheck helgrind drd)
+
 	build_test(concurrent_hash_map_insert_lookup concurrent_hash_map_insert_lookup/concurrent_hash_map_insert_lookup.cpp)
-	add_test_generic(NAME concurrent_hash_map_insert_lookup CASE 0 TRACERS none memcheck pmemcheck)
+	add_test_generic(NAME concurrent_hash_map_insert_lookup CASE 0 TRACERS none
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test_defrag(concurrent_hash_map_insert_lookup_mock concurrent_hash_map_insert_lookup/concurrent_hash_map_insert_lookup.cpp)
+	add_test_generic(NAME concurrent_hash_map_insert_lookup_mock CASE 0 TRACERS memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
 
 	build_test(concurrent_hash_map_insert_erase concurrent_hash_map_insert_erase/concurrent_hash_map_insert_erase.cpp)
-	add_test_generic(NAME concurrent_hash_map_insert_erase CASE 0 TRACERS none memcheck pmemcheck)
+	add_test_generic(NAME concurrent_hash_map_insert_erase CASE 0 TRACERS none
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+	add_test_generic(NAME concurrent_hash_map_insert_erase CASE 1 TRACERS none
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test_defrag(concurrent_hash_map_insert_erase_mock concurrent_hash_map_insert_erase/concurrent_hash_map_insert_erase.cpp)
+	add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 0 TRACERS memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+	add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 1 TRACERS memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
 
 	build_test(concurrent_hash_map_rehash concurrent_hash_map_rehash/concurrent_hash_map_rehash.cpp)
-	add_test_generic(NAME concurrent_hash_map_rehash CASE 0 TRACERS none memcheck pmemcheck)
+	add_test_generic(NAME concurrent_hash_map_rehash CASE 0 TRACERS none
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+	add_test_generic(NAME concurrent_hash_map_rehash CASE 1 TRACERS none
+			SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
+
+	build_test_defrag(concurrent_hash_map_rehash_mock concurrent_hash_map_rehash/concurrent_hash_map_rehash.cpp)
+	add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 0 TRACERS memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+	add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
+
+	build_test(concurrent_hash_map_rehash_recursive concurrent_hash_map_rehash_recursive/concurrent_hash_map_rehash_recursive.cpp)
+	add_test_generic(NAME concurrent_hash_map_rehash_recursive CASE 0 TRACERS none
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test_defrag(concurrent_hash_map_rehash_recursive_mock concurrent_hash_map_rehash_recursive/concurrent_hash_map_rehash_recursive.cpp)
+	add_test_generic(NAME concurrent_hash_map_rehash_recursive_mock CASE 0 TRACERS memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test(concurrent_hash_map_rehash_deadlock concurrent_hash_map_rehash_deadlock/concurrent_hash_map_rehash_deadlock.cpp)
+	add_test_generic(NAME concurrent_hash_map_rehash_deadlock CASE 0 TRACERS none
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	# this single-threaded test should not be run under helgrind/drd, because a false-positive deadlock can be detected
+	build_test_defrag(concurrent_hash_map_rehash_deadlock_mock concurrent_hash_map_rehash_deadlock/concurrent_hash_map_rehash_deadlock.cpp)
+	add_test_generic(NAME concurrent_hash_map_rehash_deadlock_mock CASE 0 TRACERS memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test(concurrent_hash_map_defrag concurrent_hash_map_defrag/concurrent_hash_map_defrag.cpp)
+	add_test_generic(NAME concurrent_hash_map_defrag TRACERS none)
 
 	# This test can NOT be run under helgrind as it will report wrong lock ordering. Helgrind is right about
 	# possible deadlock situation but that could only happen in case of wrong API usage.
 	build_test(concurrent_hash_map_deadlock concurrent_hash_map_deadlock/concurrent_hash_map_deadlock.cpp)
-	add_test_generic(NAME concurrent_hash_map_deadlock CASE 0 TRACERS none drd memcheck pmemcheck)
+	add_test_generic(NAME concurrent_hash_map_deadlock CASE 0 TRACERS none drd memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test(concurrent_hash_map_insert_reopen concurrent_hash_map_insert_reopen/concurrent_hash_map_insert_reopen.cpp)
+	add_test_generic(NAME concurrent_hash_map_insert_reopen CASE 0 TRACERS none memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test_ext(NAME concurrent_hash_map_insert_reopen_deprecated SRC_FILES concurrent_hash_map_insert_reopen/concurrent_hash_map_insert_reopen.cpp
+			BUILD_OPTIONS -DUSE_DEPRECATED_RUNTIME_INITIALIZE)
+	check_cxx_compiler_flag(-Wdeprecated-declarations deprecated_declarations)
+	if (deprecated_declarations)
+		target_compile_options(concurrent_hash_map_insert_reopen_deprecated PUBLIC -Wno-deprecated-declarations)
+	endif()
+	add_test_generic(NAME concurrent_hash_map_insert_reopen_deprecated TRACERS none)
 
 	if(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND)
-		add_test_generic(NAME concurrent_hash_map_insert_lookup CASE 0 TRACERS helgrind)
+		add_test_generic(NAME concurrent_hash_map_insert_reopen CASE 0 TRACERS drd helgrind
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+		add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 0 TRACERS helgrind drd
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+		add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 1 TRACERS helgrind drd
+				SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
 
-		add_test_generic(NAME concurrent_hash_map_insert_erase CASE 0 TRACERS helgrind)
+		add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 0 TRACERS helgrind
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+		add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS helgrind
+				SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
 
 		if (TESTS_LONG)
-			add_test_generic(NAME concurrent_hash_map_insert_lookup CASE 0 TRACERS drd)
+			add_test_generic(NAME concurrent_hash_map_insert_lookup_mock CASE 0 TRACERS helgrind drd
+					SCRIPT concurrent_hash_map/check_is_pmem.cmake)
 
-			add_test_generic(NAME concurrent_hash_map_insert_erase CASE 0 TRACERS drd)
+			add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 0 TRACERS drd
+					SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+			add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS drd
+					SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
+
+			add_test_generic(NAME concurrent_hash_map_rehash_recursive_mock CASE 0 TRACERS helgrind drd
+					SCRIPT concurrent_hash_map/check_is_pmem.cmake)
 		endif()
-
 		# disabled due to intermittent failures (most probably false-positive reported by helgrind, ref. issue #469)
 		# add_test_generic(NAME concurrent_hash_map_rehash CASE 0 TRACERS helgrind)
 	endif()
@@ -412,22 +510,36 @@ if(PMEMVLT_PRESENT AND ENABLE_CONCURRENT_HASHMAP)
 		message(WARNING "Skipping concurrent_hash_map_rehash_break test because GDB was not found")
 	endif()
 
-	if(NOT TBB_FOUND)
-		message(WARNING "Skipping concurrent_hash_map_tbb test because Intel TBB library was not found")
+	if(NOT TESTS_TBB)
+		message(WARNING "Skipping concurrent_hash_map_tbb tests - disabled by cmake TESTS_TBB option")
+	elseif(NOT TBB_FOUND)
+		message(FATAL_ERROR "concurrent_hash_map_tbb tests enabled by cmake TESTS_TBB option, but Intel TBB library was not found")
 	else()
 		build_test_tbb(concurrent_hash_map_tbb_insert_lookup concurrent_hash_map_insert_lookup/concurrent_hash_map_tbb_insert_lookup.cpp)
-		add_test_generic(NAME concurrent_hash_map_tbb_insert_lookup TRACERS none pmemcheck)
+		add_test_generic(NAME concurrent_hash_map_tbb_insert_lookup TRACERS none
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+		build_test_tbb_defrag(concurrent_hash_map_tbb_insert_lookup_mock concurrent_hash_map_insert_lookup/concurrent_hash_map_tbb_insert_lookup.cpp)
+		add_test_generic(NAME concurrent_hash_map_tbb_insert_lookup_mock TRACERS pmemcheck
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
 
 		build_test_tbb(concurrent_hash_map_tbb_insert_erase concurrent_hash_map_insert_erase/concurrent_hash_map_tbb_insert_erase.cpp)
-		add_test_generic(NAME concurrent_hash_map_tbb_insert_erase TRACERS none pmemcheck)
+		add_test_generic(NAME concurrent_hash_map_tbb_insert_erase TRACERS none
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+		build_test_tbb_defrag(concurrent_hash_map_tbb_insert_erase_mock concurrent_hash_map_insert_erase/concurrent_hash_map_tbb_insert_erase.cpp)
+		add_test_generic(NAME concurrent_hash_map_tbb_insert_erase_mock TRACERS pmemcheck
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
 	endif()
 
 	if(PMREORDER_SUPPORTED)
 		build_test(concurrent_hash_map_pmreorder_simple concurrent_hash_map_pmreorder_simple/concurrent_hash_map_pmreorder_simple.cpp)
-		add_test_generic(NAME concurrent_hash_map_pmreorder_simple CASE 0 TRACERS none)
+		add_test_generic(NAME concurrent_hash_map_pmreorder_simple CASE 0 TRACERS none
+				SCRIPT concurrent_hash_map/pmreorder.cmake)
 
 		build_test(concurrent_hash_map_pmreorder_multiple_buckets concurrent_hash_map_pmreorder_multiple_buckets/concurrent_hash_map_pmreorder_multiple_buckets.cpp)
-		add_test_generic(NAME concurrent_hash_map_pmreorder_multiple_buckets CASE 0 TRACERS none)
+		add_test_generic(NAME concurrent_hash_map_pmreorder_multiple_buckets CASE 0 TRACERS none
+				SCRIPT concurrent_hash_map/pmreorder.cmake)
 
 		build_test(concurrent_hash_map_pmreorder_erase concurrent_hash_map_pmreorder_erase/concurrent_hash_map_pmreorder_erase.cpp)
 		add_test_generic(NAME concurrent_hash_map_pmreorder_erase CASE 0 TRACERS none)
@@ -453,11 +565,9 @@ if(PMEMVLT_PRESENT AND ENABLE_CONCURRENT_HASHMAP)
 	else()
 		message(WARNING "Skipping pmreorder tests because of no pmreorder support")
 	endif()
-elseif(NOT PMEMVLT_PRESENT AND ENABLE_CONCURRENT_HASHMAP)
-	message(WARNING "Skipping concurrent_hash_map tests because no pmemvlt support found.")
 endif()
 
-if(ENABLE_SEGMENT_VECTOR_ARRAY_EXPSIZE)
+if(TEST_SEGMENT_VECTOR_ARRAY_EXPSIZE)
 	build_test_ext(NAME segment_vector_array_expsize_temp_value SRC_FILES temp_value/temp_value.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_EXPSIZE)
 	add_test_generic(NAME segment_vector_array_expsize_temp_value TRACERS none pmemcheck memcheck)
 
@@ -489,7 +599,7 @@ if(ENABLE_SEGMENT_VECTOR_ARRAY_EXPSIZE)
 	add_test_generic(NAME segment_vector_array_expsize_ctor_exceptions_notx TRACERS none memcheck)
 
 	#[[ XXX:
-	 When we throwing exceptions in segment vector constructor, destructors is called for all constructed element according to standart.
+	 When we throwing exceptions in segment vector constructor, destructors is called for all constructed element according to standard.
 	 In this way for segment with non-zero capacity in the underlying vectors destructor free_data() methods is called.
 	 The free_data() run nested transaction which is failed to run when internally calls pmemobj_tx_begin(pool.handle(), nullptr, TX_PARAM_NONE).
 	]]
@@ -523,11 +633,14 @@ if(ENABLE_SEGMENT_VECTOR_ARRAY_EXPSIZE)
 	build_test_ext(NAME segment_vector_array_expsize_std_arg SRC_FILES vector_std_arg/vector_std_arg.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_EXPSIZE)
 	add_test_generic(NAME segment_vector_array_expsize_std_arg TRACERS none memcheck pmemcheck)
 
+	build_test_ext(NAME segment_vector_array_expsize_parameters SRC_FILES vector_parameters/vector_parameters.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_EXPSIZE)
+	add_test_generic(NAME segment_vector_array_expsize_parameters TRACERS none memcheck pmemcheck)
+
 	build_test_ext(NAME segment_vector_array_expsize_layout SRC_FILES vector_layout/vector_layout.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_EXPSIZE)
 	add_test_generic(NAME segment_vector_array_expsize_layout TRACERS none)
 endif()
 
-if(ENABLE_SEGMENT_VECTOR_VECTOR_EXPSIZE)
+if(TEST_SEGMENT_VECTOR_VECTOR_EXPSIZE)
 	build_test_ext(NAME segment_vector_vector_expsize_temp_value SRC_FILES temp_value/temp_value.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_VECTOR_EXPSIZE)
 	add_test_generic(NAME segment_vector_vector_expsize_temp_value TRACERS none pmemcheck memcheck)
 
@@ -559,7 +672,7 @@ if(ENABLE_SEGMENT_VECTOR_VECTOR_EXPSIZE)
 	add_test_generic(NAME segment_vector_vector_expsize_ctor_exceptions_notx TRACERS none memcheck)
 
 	#[[ XXX:
-	 When we throwing exceptions in segment vector constructor, destructors is called for all constructed element according to standart.
+	 When we throwing exceptions in segment vector constructor, destructors is called for all constructed element according to standard.
 	 In this way for segment with non-zero capacity in the underlying vectors destructor free_data() methods is called.
 	 The free_data() run nested transaction which is failed to run when internally calls pmemobj_tx_begin(pool.handle(), nullptr, TX_PARAM_NONE).
 	]]
@@ -593,81 +706,14 @@ if(ENABLE_SEGMENT_VECTOR_VECTOR_EXPSIZE)
 	build_test_ext(NAME segment_vector_vector_expsize_std_arg SRC_FILES vector_std_arg/vector_std_arg.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_VECTOR_EXPSIZE)
 	add_test_generic(NAME segment_vector_vector_expsize_std_arg TRACERS none memcheck pmemcheck)
 
+	build_test_ext(NAME segment_vector_vector_expsize_parameters SRC_FILES vector_parameters/vector_parameters.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_VECTOR_EXPSIZE)
+	add_test_generic(NAME segment_vector_vector_expsize_parameters TRACERS none memcheck pmemcheck)
+
 	build_test_ext(NAME segment_vector_vector_expsize_layout SRC_FILES vector_layout/vector_layout.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_VECTOR_EXPSIZE)
 	add_test_generic(NAME segment_vector_vector_expsize_layout TRACERS none)
 endif()
 
-if(ENABLE_SEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	build_test_ext(NAME segment_vector_array_fixedsize_temp_value SRC_FILES temp_value/temp_value.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_temp_value TRACERS none pmemcheck memcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_assign_exceptions_length SRC_FILES vector_assign_exceptions_length/vector_assign_exceptions_length.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_assign_exceptions_length TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_assign_exceptions_oom SRC_FILES vector_assign_exceptions_oom/vector_assign_exceptions_oom.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE_EXT)
-	add_test_generic(NAME segment_vector_array_fixedsize_assign_exceptions_oom TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_assign_txabort SRC_FILES vector_assign_txabort/vector_assign_txabort.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_assign_txabort TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_comp_operators SRC_FILES vector_comp_operators/vector_comp_operators.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_comp_operators TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_capacity_exceptions_length SRC_FILES vector_capacity_exceptions_length/vector_capacity_exceptions_length.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_capacity_exceptions_length TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_capacity_exceptions_oom SRC_FILES vector_capacity_exceptions_oom/vector_capacity_exceptions_oom.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE_EXT)
-	add_test_generic(NAME segment_vector_array_fixedsize_capacity_exceptions_oom TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_capacity_txabort SRC_FILES vector_capacity_txabort/vector_capacity_txabort.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_capacity_txabort TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_ctor_exceptions_nopmem SRC_FILES vector_ctor_exceptions_nopmem/vector_ctor_exceptions_nopmem.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_ctor_exceptions_nopmem TRACERS none memcheck )
-
-	build_test_ext(NAME segment_vector_array_fixedsize_ctor_exceptions_notx SRC_FILES vector_ctor_exceptions_notx/vector_ctor_exceptions_notx.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_ctor_exceptions_notx TRACERS none memcheck)
-
-	#[[ XXX:
-	 When we throwing exceptions in segment vector constructor, destructors is called for all constructed element according to standart.
-	 In this way for segment with non-zero capacity in the underlying vectors destructor free_data() methods is called.
-	 The free_data() run nested transaction which is failed to run when internally calls pmemobj_tx_begin(pool.handle(), nullptr, TX_PARAM_NONE).
-	]]
-	# build_test_ext(NAME segment_vector_array_fixedsize_ctor_exceptions_oom SRC_FILES vector_ctor_exceptions_oom/vector_ctor_exceptions_oom.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	# add_test_generic(NAME segment_vector_array_fixedsize_ctor_exceptions_oom TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_ctor_move SRC_FILES vector_ctor_move/vector_ctor_move.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_ctor_move TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_ctor_capacity SRC_FILES vector_ctor_capacity/vector_ctor_capacity.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_ctor_capacity TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_dtor SRC_FILES vector_dtor/vector_dtor.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_dtor TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_iterators_access SRC_FILES vector_iterators_access/vector_iterators_access.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_iterators_access TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_ctor_check_copy SRC_FILES vector_ctor_check_copy/vector_ctor_check_copy.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_ctor_check_copy TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_modifiers_exceptions_oom SRC_FILES vector_modifiers_exceptions_oom/vector_modifiers_exceptions_oom.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE_EXT)
-	add_test_generic(NAME segment_vector_array_fixedsize_modifiers_exceptions_oom TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_modifiers_txabort SRC_FILES vector_modifiers_txabort/vector_modifiers_txabort.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_modifiers_txabort TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_modifiers_type_requirements SRC_FILES vector_modifiers_type_requirements/vector_modifiers_type_requirements.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_modifiers_type_requirements TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_std_arg SRC_FILES vector_std_arg/vector_std_arg.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_std_arg TRACERS none memcheck pmemcheck)
-
-	build_test_ext(NAME segment_vector_array_fixedsize_layout SRC_FILES vector_layout/vector_layout.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_ARRAY_FIXEDSIZE)
-	add_test_generic(NAME segment_vector_array_fixedsize_layout TRACERS none)
-endif()
-
-if(ENABLE_SEGMENT_VECTOR_VECTOR_FIXEDSIZE)
+if(TEST_SEGMENT_VECTOR_VECTOR_FIXEDSIZE)
 	build_test_ext(NAME segment_vector_vector_fixedsize_temp_value SRC_FILES temp_value/temp_value.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_VECTOR_FIXEDSIZE)
 	add_test_generic(NAME segment_vector_vector_fixedsize_temp_value TRACERS none pmemcheck memcheck)
 
@@ -699,7 +745,7 @@ if(ENABLE_SEGMENT_VECTOR_VECTOR_FIXEDSIZE)
 	add_test_generic(NAME segment_vector_vector_fixedsize_ctor_exceptions_notx TRACERS none memcheck)
 
 	#[[ XXX:
-	 When we throwing exceptions in segment vector constructor, destructors is called for all constructed element according to standart.
+	 When we throwing exceptions in segment vector constructor, destructors is called for all constructed element according to standard.
 	 In this way for segment with non-zero capacity in the underlying vectors destructor free_data() methods is called.
 	 The free_data() run nested transaction which is failed to run when internally calls pmemobj_tx_begin(pool.handle(), nullptr, TX_PARAM_NONE).
 	]]
@@ -733,8 +779,40 @@ if(ENABLE_SEGMENT_VECTOR_VECTOR_FIXEDSIZE)
 	build_test_ext(NAME segment_vector_vector_fixedsize_std_arg SRC_FILES vector_std_arg/vector_std_arg.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_VECTOR_FIXEDSIZE)
 	add_test_generic(NAME segment_vector_vector_fixedsize_std_arg TRACERS none memcheck pmemcheck)
 
+	build_test_ext(NAME segment_vector_vector_fixedsize_parameters SRC_FILES vector_parameters/vector_parameters.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_VECTOR_FIXEDSIZE)
+	add_test_generic(NAME segment_vector_vector_fixedsize_parameters TRACERS none memcheck pmemcheck)
+
 	build_test_ext(NAME segment_vector_vector_fixedsize_layout SRC_FILES vector_layout/vector_layout.cpp BUILD_OPTIONS -DSEGMENT_VECTOR_VECTOR_FIXEDSIZE)
 	add_test_generic(NAME segment_vector_vector_fixedsize_layout TRACERS none)
 endif()
 
+if (TEST_ENUMERABLE_THREAD_SPECIFIC)
+	build_test(enumerable_thread_specific_access enumerable_thread_specific_access/enumerable_thread_specific_access.cpp)
+	add_test_generic(NAME enumerable_thread_specific_access CASE 0 TRACERS none memcheck pmemcheck drd helgrind
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test(enumerable_thread_specific_size enumerable_thread_specific_size/enumerable_thread_specific_size.cpp)
+	add_test_generic(NAME enumerable_thread_specific_size CASE 0 TRACERS none memcheck pmemcheck drd helgrind
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test(enumerable_thread_specific_iterators enumerable_thread_specific_iterators/enumerable_thread_specific_iterators.cpp)
+	add_test_generic(NAME enumerable_thread_specific_iterators CASE 0 TRACERS none memcheck pmemcheck drd helgrind
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test(enumerable_thread_specific_layout enumerable_thread_specific_layout/enumerable_thread_specific_layout.cpp)
+	add_test_generic(NAME enumerable_thread_specific_layout TRACERS none)
+
+	build_test(enumerable_thread_specific_initialize enumerable_thread_specific_initialize/enumerable_thread_specific_initialize.cpp)
+	add_test_generic(NAME enumerable_thread_specific_initialize CASE 0 TRACERS none memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	build_test(enumerable_thread_specific_ctor enumerable_thread_specific_ctor/enumerable_thread_specific_ctor.cpp)
+	add_test_generic(NAME enumerable_thread_specific_ctor CASE 0 TRACERS none memcheck pmemcheck
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+endif()
+
 add_subdirectory(external)
+
+if (TESTS_COMPATIBILITY)
+	add_subdirectory(compatibility)
+endif()

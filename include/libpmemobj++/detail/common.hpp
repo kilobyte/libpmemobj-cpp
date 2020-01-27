@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2019, Intel Corporation
+ * Copyright 2016-2020, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -116,15 +116,44 @@
 	std::is_trivially_copyable<T>::value
 #endif
 
+/*! \namespace pmem
+ * \brief Persistent memory namespace.
+ *
+ * It is a common namespace for all persistent memory C++ libraries
+ * For more information about pmem goto: https://pmem.io
+ */
+
 namespace pmem
 {
-
+/*! \namespace pmem::obj
+ * \brief Main libpmemobj namespace.
+ *
+ * It contains all libpmemobj's public types, enums, classes with their
+ * functions and members. It is located within pmem namespace.
+ */
 namespace obj
 {
 template <typename T>
 class persistent_ptr;
+
+/*! \namespace pmem::obj::experimental
+ * \brief Experimental implementations.
+ *
+ * It contains implementations, which are not yet ready to be used in
+ * production. They may be not finished, not fully tested or still in
+ * discussion. It is located within pmem::obj namespace.
+ */
+namespace experimental
+{
+}
 }
 
+/*! \namespace pmem::detail
+ * \brief Implementation details.
+ *
+ * It contains libpmemobj's implementation details, not needed in public
+ * headers. It is located within pmem namespace.
+ */
 namespace detail
 {
 
@@ -239,7 +268,7 @@ Log2(uint64_t x)
 		0,  58, 1,  59, 47, 53, 2,  60, 39, 48, 27, 54, 33, 42, 3,  61,
 		51, 37, 40, 49, 18, 28, 20, 55, 30, 34, 11, 43, 14, 22, 4,  62,
 		57, 46, 52, 38, 26, 32, 41, 50, 36, 17, 19, 29, 10, 13, 21, 56,
-		45, 25, 31, 35, 16, 9,  12, 44, 24, 15, 8,  23, 7,  6,  5,  63};
+		45, 25, 31, 35, 16, 9,	12, 44, 24, 15, 8,  23, 7,  6,	5,  63};
 
 	return table[(x * 0x03f6eaf2cd271461) >> 58];
 }

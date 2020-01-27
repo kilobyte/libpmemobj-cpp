@@ -1,5 +1,5 @@
 #
-# Copyright 2018-2019, Intel Corporation
+# Copyright 2018-2020, Intel Corporation
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -116,11 +116,11 @@ else()
 	set(SFML_LIBRARIES sfml-graphics sfml-window sfml-system)
 endif()
 
-if (ENABLE_ARRAY)
+if (TEST_ARRAY)
 	add_example(queue queue/queue.cpp)
 endif()
 
-if (ENABLE_VECTOR)
+if (TEST_VECTOR)
 	add_example(simplekv simplekv/simplekv.cpp)
 	if(NOT CLANG_DESTRUCTOR_REFERENCE_BUG_PRESENT)
 		add_example(simplekv_rebuild simplekv_rebuild/simplekv_rebuild.cpp)
@@ -183,3 +183,9 @@ add_library(doc_snippets_mutex OBJECT doc_snippets/mutex.cpp)
 add_library(doc_snippets_pool OBJECT doc_snippets/pool.cpp)
 add_library(doc_snippets_transaction OBJECT doc_snippets/transaction.cpp)
 add_library(doc_snippets_concurrent_hash_map OBJECT doc_snippets/concurrent_hash_map.cpp)
+add_library(doc_snippets_segment_vector OBJECT doc_snippets/segment_vector.cpp)
+if (TEST_VECTOR)
+	add_library(doc_snippets_defrag OBJECT doc_snippets/defrag.cpp)
+else()
+	message(WARNING "skipping doc_snippets_defrag example - it requires vector enabled")
+endif()

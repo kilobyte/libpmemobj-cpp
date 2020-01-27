@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019, Intel Corporation
+ * Copyright 2018-2020, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,6 +36,7 @@
  */
 
 #include "../concurrent_hash_map/concurrent_hash_map_test.hpp"
+#include "tests/wrap_pmemobj_defrag.h"
 #include "unittest.hpp"
 
 int
@@ -44,10 +45,13 @@ main(int argc, char *argv[])
 	START();
 
 	if (argc < 2) {
-		UT_FATAL("usage: %s file-name", argv[0]);
+		UT_FATAL("usage: %s file-name [defrag:0|1]", argv[0]);
 	}
 
 	const char *path = argv[1];
+	int defrag = 0;
+	if (argc == 3)
+		defrag = atoi(argv[2]);
 
 	nvobj::pool<root> pop;
 
@@ -85,9 +89,11 @@ main(int argc, char *argv[])
 			      persistent_map_type::value_type>(pop,
 							       concurrency);
 
+	insert_erase_count_test(pop, concurrency);
+
 	insert_mt_test(pop, concurrency);
 
-	insert_erase_lookup_test(pop, concurrency);
+	insert_erase_lookup_test(pop, concurrency, defrag);
 
 	pop.close();
 	return 0;

@@ -66,11 +66,12 @@ expected_sizeof()
 /* if defined segment vector with default args */
 #elif defined SEGMENT_VECTOR_ARRAY_EXPSIZE
 
-#include <libpmemobj++/experimental/segment_vector.hpp>
+#include <libpmemobj++/container/segment_vector.hpp>
 
-namespace pexp = pmem::obj::experimental;
+namespace pexp = pmem::obj;
 template <typename T>
-using container_t = pexp::segment_vector<T>;
+using container_t =
+	pexp::segment_vector<T, pexp::exponential_size_array_policy<>>;
 
 template <typename T>
 struct container_representation_t {
@@ -100,13 +101,11 @@ expected_sizeof()
 /* if defined segment vector with vector storage & exponential size*/
 #elif defined SEGMENT_VECTOR_VECTOR_EXPSIZE
 
-#include <libpmemobj++/experimental/segment_vector.hpp>
+#include <libpmemobj++/container/segment_vector.hpp>
 
-namespace pexp = pmem::obj::experimental;
+namespace pexp = pmem::obj;
 template <typename T>
-using container_t = pexp::segment_vector<
-	T, pmem::obj::vector<T>,
-	pexp::exponential_size_vector_policy<pmem::obj::vector<T>>>;
+using container_t = pexp::segment_vector<T>;
 
 template <typename T>
 struct container_representation_t {
@@ -133,50 +132,15 @@ expected_sizeof()
 	return 40;
 }
 
-/* if defined segment vector with fixed segmentation */
-#elif defined SEGMENT_VECTOR_ARRAY_FIXEDSIZE
-
-#include <libpmemobj++/experimental/segment_vector.hpp>
-
-namespace pexp = pmem::obj::experimental;
-template <typename T>
-using container_t = pexp::segment_vector<
-	T, pmem::obj::vector<T>,
-	pexp::fixed_size_array_policy<pmem::obj::vector<T>, 100>>;
-
-template <typename T>
-struct container_representation_t {
-	typename container_t<T>::size_type segments_used;
-
-	/* Underlying segments */
-	pmem::obj::vector<T> ptr[255];
-};
-
-template <typename T>
-T
-expected_capacity(T value)
-{
-	if (value == 0)
-		return 0;
-	return (((value - 1) / 100) + 1) * 100;
-}
-
-constexpr unsigned int
-expected_sizeof()
-{
-	return 8168;
-}
-
 /* if defined segment vector with fixed segmentation and vector storage */
 #elif defined SEGMENT_VECTOR_VECTOR_FIXEDSIZE
 
-#include <libpmemobj++/experimental/segment_vector.hpp>
+#include <libpmemobj++/container/segment_vector.hpp>
 
-namespace pexp = pmem::obj::experimental;
+namespace pexp = pmem::obj;
 template <typename T>
-using container_t = pexp::segment_vector<
-	T, pmem::obj::vector<T>,
-	pexp::fixed_size_vector_policy<pmem::obj::vector<T>, 100>>;
+using container_t =
+	pexp::segment_vector<T, pexp::fixed_size_vector_policy<100>>;
 
 template <typename T>
 struct container_representation_t {
@@ -201,50 +165,15 @@ expected_sizeof()
 	return 40;
 }
 
-/* if defined segment vector with fixed large segments */
-#elif defined SEGMENT_VECTOR_ARRAY_FIXEDSIZE_EXT
-
-#include <libpmemobj++/experimental/segment_vector.hpp>
-
-namespace pexp = pmem::obj::experimental;
-template <typename T>
-using container_t = pexp::segment_vector<
-	T, pmem::obj::vector<T>,
-	pexp::fixed_size_array_policy<pmem::obj::vector<T>, 20000>>;
-
-template <typename T>
-struct container_representation_t {
-	typename container_t<T>::size_type segments_used;
-
-	/* Underlying segments */
-	pmem::obj::vector<T> ptr[255];
-};
-
-template <typename T>
-T
-expected_capacity(T value)
-{
-	if (value == 0)
-		return 0;
-	return (((value - 1) / 20000) + 1) * 20000;
-}
-
-constexpr unsigned int
-expected_sizeof()
-{
-	return 8200;
-}
-
 /* if defined segment vector with fixed large segments and vector storage */
 #elif defined SEGMENT_VECTOR_VECTOR_FIXEDSIZE_EXT
 
-#include <libpmemobj++/experimental/segment_vector.hpp>
+#include <libpmemobj++/container/segment_vector.hpp>
 
-namespace pexp = pmem::obj::experimental;
+namespace pexp = pmem::obj;
 template <typename T>
-using container_t = pexp::segment_vector<
-	T, pmem::obj::vector<T>,
-	pexp::fixed_size_vector_policy<pmem::obj::vector<T>, 15000>>;
+using container_t =
+	pexp::segment_vector<T, pexp::fixed_size_vector_policy<15000>>;
 
 template <typename T>
 struct container_representation_t {
