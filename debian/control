@@ -24,7 +24,7 @@ Package: libpmemobj-cpp-dev
 Section: libdevel
 Architecture: amd64
 Multi-Arch: same
-Depends: libpmemobj-dev, ${misc:Depends}, ${shlibs:Depends}
+Depends: libpmemobj-dev (>= 1.8~), ${misc:Depends}, ${shlibs:Depends}
 # These versions were found in Ubuntu ≤ Disco; can be removed after 20.04.
 Breaks: libpmemobj-dev (<< 1.5)
 Replaces: libpmemobj-dev (<< 1.5)
