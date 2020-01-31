@@ -75,6 +75,7 @@ if(COVERAGE)
 endif()
 
 find_packages()
+find_gdb()
 
 add_library(test_backtrace STATIC test_backtrace.c)
 if(LIBUNWIND_FOUND)
@@ -184,14 +185,9 @@ if(WIN32)
 	add_test_generic(NAME pool_win CASE 3 TRACERS none)
 endif()
 
-if(PMEMVLT_PRESENT)
-	build_test(v v/v.cpp)
-	add_test_generic(NAME v CASE 0 TRACERS none memcheck
-			SCRIPT cmake/common_0.cmake)
-else()
-	message(WARNING "Skipping v test because no pmemvlt support found")
-	skip_test("v" "SKIPPED_BECAUSE_OF_MISSING_PMEMVLT")
-endif()
+build_test(v v/v.cpp)
+add_test_generic(NAME v CASE 0 TRACERS none memcheck SCRIPT cmake/common_0.cmake)
+
 
 if(NO_CHRONO_BUG)
 	build_test(cond_var cond_var/cond_var.cpp)
@@ -464,10 +460,11 @@ if(TEST_CONCURRENT_HASHMAP)
 		add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 1 TRACERS helgrind drd
 				SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
 
-		add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 0 TRACERS helgrind
-				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
-		add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS helgrind
-				SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
+		# disabled due to intermittent failures (most probably false-positive reported by helgrind, ref. issue #469)
+		# add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 0 TRACERS helgrind
+		#		SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+		# add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS helgrind
+		#		SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
 
 		if (TESTS_LONG)
 			add_test_generic(NAME concurrent_hash_map_insert_lookup_mock CASE 0 TRACERS helgrind drd
