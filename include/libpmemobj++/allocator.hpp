@@ -1,34 +1,5 @@
-/*
- * Copyright 2016-2019, Intel Corporation
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in
- *       the documentation and/or other materials provided with the
- *       distribution.
- *
- *     * Neither the name of the copyright holder nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-3-Clause
+/* Copyright 2016-2020, Intel Corporation */
 
 /**
  * @file
@@ -102,10 +73,18 @@ public:
 	 *
 	 * @param[in] p the pointer to where the object will be constructed.
 	 * @param[in] t the object reference for copy construction.
+	 *
+	 * @throw transaction_scope_error if called outside of an active
+	 * transaction.
+	 * @throw rethrows exception from T constructor.
 	 */
 	void
 	construct(pointer p, const_reference t)
 	{
+		if (pmemobj_tx_stage() != TX_STAGE_WORK)
+			throw pmem::transaction_scope_error(
+				"construct is called outside of transaction scope");
+
 		/* construct called on newly allocated objects */
 		detail::conditional_add_to_tx(p.get());
 		new (static_cast<void *>(p.get())) value_type(t);
@@ -118,11 +97,19 @@ public:
 	 *
 	 * @param[in] p the pointer to where the object will be constructed.
 	 * @param[in] args parameters passed to the object's constructor.
+	 *
+	 * @throw transaction_scope_error if called outside of an active
+	 * transaction.
+	 * @throw rethrows exception from T constructor.
 	 */
 	template <typename... Args>
 	void
 	construct(pointer p, Args &&... args)
 	{
+		if (pmemobj_tx_stage() != TX_STAGE_WORK)
+			throw pmem::transaction_scope_error(
+				"construct is called outside of transaction scope");
+
 		detail::conditional_add_to_tx(p.get());
 		new (static_cast<void *>(p.get()))
 			value_type(std::forward<Args>(args)...);
@@ -247,6 +234,9 @@ public:
 	 * @param[in] cnt the number of objects to allocate memory for.
 	 *
 	 * @throw transaction_scope_error if called outside of a transaction.
+	 * @throw transaction_out_of_memory if there is no free memory of
+	 * requested size.
+	 * @throw transaction_alloc_error on transactional allocation failure.
 	 */
 	pointer
 	allocate(size_type cnt, const_void_pointer = 0)
@@ -256,8 +246,22 @@ public:
 				"refusing to allocate memory outside of transaction scope");
 
 		/* allocate raw memory, no object construction */
-		return pmemobj_tx_alloc(sizeof(value_type) * cnt,
-					detail::type_num<T>());
+		pointer ptr = pmemobj_tx_alloc(sizeof(value_type) * cnt,
+					       detail::type_num<value_type>());
+
+		if (ptr == nullptr) {
+			if (errno == ENOMEM) {
+				throw pmem::transaction_out_of_memory(
+					"Failed to allocate persistent memory object")
+					.with_pmemobj_errormsg();
+			} else {
+				throw pmem::transaction_alloc_error(
+					"Failed to allocate persistent memory object")
+					.with_pmemobj_errormsg();
+			}
+		}
+
+		return ptr;
 	}
 
 	/**
@@ -462,9 +466,9 @@ public:
 	~allocator() = default;
 
 	/**
-	 * Explicit copy constructor.
+	 * Copy constructor.
 	 */
-	explicit allocator(allocator const &rhs) : Policy(rhs), Traits(rhs)
+	allocator(allocator const &rhs) : Policy(rhs), Traits(rhs)
 	{
 	}
 

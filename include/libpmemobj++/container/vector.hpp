@@ -1,34 +1,5 @@
-/*
- * Copyright 2018-2020, Intel Corporation
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in
- *       the documentation and/or other materials provided with the
- *       distribution.
- *
- *     * Neither the name of the copyright holder nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-3-Clause
+/* Copyright 2018-2020, Intel Corporation */
 
 /**
  * @file
@@ -569,7 +540,7 @@ vector<T>::vector(const std::vector<T> &other)
  *
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 vector<T> &
@@ -606,7 +577,7 @@ vector<T>::operator=(vector &&other)
  * @throw std::length_error if ilist.size() > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 vector<T> &
@@ -627,7 +598,7 @@ vector<T>::operator=(std::initializer_list<T> ilist)
  *
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 vector<T> &
@@ -652,7 +623,7 @@ vector<T>::operator=(const std::vector<T> &other)
  * @throw std::length_error if count > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 void
@@ -707,7 +678,7 @@ vector<T>::assign(size_type count, const_reference value)
  * @throw std::length_error if std::distance(first, last) > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 template <typename InputIt,
@@ -770,7 +741,7 @@ vector<T>::assign(InputIt first, InputIt last)
  * @throw std::length_error if std::distance(first, last) > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 void
@@ -788,7 +759,7 @@ vector<T>::assign(std::initializer_list<T> ilist)
  *
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 void
@@ -840,7 +811,7 @@ vector<T>::assign(vector &&other)
  *
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 void
@@ -851,17 +822,19 @@ vector<T>::assign(const std::vector<T> &other)
 
 /**
  * Destructor.
- * Note that free_data may throw an transaction_free_error when freeing
- * underlying array failed. It is recommended to call free_data manually before
- * object destruction.
- *
- * @throw rethrows destructor exception.
- * @throw transaction_free_error when freeing underlying array failed.
+ * Note that free_data may throw a transaction_free_error
+ * when freeing underlying array failed. It is recommended
+ * to call free_data manually before object destruction,
+ * otherwise application can be terminated on failure.
  */
 template <typename T>
 vector<T>::~vector()
 {
-	free_data();
+	try {
+		free_data();
+	} catch (...) {
+		std::terminate();
+	}
 }
 
 /**
@@ -1437,7 +1410,7 @@ vector<T>::capacity() const noexcept
  * @throw pmem::transaction_error when snapshotting failed
  * @throw pmem::transaction_alloc_error when reallocating failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  */
 template <typename T>
@@ -1511,7 +1484,7 @@ vector<T>::free_data()
  * capacity, or remains the same if there is enough space to add single element.
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -1542,7 +1515,7 @@ vector<T>::insert(const_iterator pos, const value_type &value)
  * capacity, or remains the same if there is enough space to add single element.
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -1586,7 +1559,7 @@ vector<T>::insert(const_iterator pos, value_type &&value)
  * elements.
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -1637,7 +1610,7 @@ vector<T>::insert(const_iterator pos, size_type count, const value_type &value)
  * space to add std::distance(first, last) elements.
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -1681,7 +1654,7 @@ vector<T>::insert(const_iterator pos, InputIt first, InputIt last)
  * elements.
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -1715,7 +1688,7 @@ vector<T>::insert(const_iterator pos, std::initializer_list<value_type> ilist)
  * capacity, or remains the same if there is enough space to add single element.
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -1765,7 +1738,7 @@ vector<T>::emplace(const_iterator pos, Args &&... args)
  * capacity, or remains the same if there is enough space to add single element.
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -1810,7 +1783,7 @@ vector<T>::emplace_back(Args &&... args)
  * @post size() = size() - 1.
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  */
 template <typename T>
@@ -1839,7 +1812,7 @@ vector<T>::erase(const_iterator pos)
  * @post size() = size() - std::distance(first, last).
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  */
 template <typename T>
@@ -1856,11 +1829,9 @@ vector<T>::erase(const_iterator first, const_iterator last)
 	pool_base pb = get_pool();
 
 	transaction::run(pb, [&] {
-		/*
-		 * XXX: future optimization: no need to snapshot trivial types,
-		 * if idx + count = _size
-		 */
-		add_data_to_tx(idx, _size - idx);
+		if (!std::is_trivially_destructible<T>::value ||
+		    idx + count < _size)
+			add_data_to_tx(idx, _size - idx);
 
 		pointer move_begin =
 			&_data[static_cast<difference_type>(idx + count)];
@@ -1887,7 +1858,7 @@ vector<T>::erase(const_iterator first, const_iterator last)
  * capacity, or remains the same if there is enough space to add single element.
  *
  * @throw transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
 template <typename T>
@@ -1910,7 +1881,7 @@ vector<T>::push_back(const value_type &value)
  * capacity, or remains the same if there is enough space to add single element.
  *
  * @throw transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
 template <typename T>
@@ -1952,7 +1923,7 @@ vector<T>::pop_back()
  * @post capacity() == std::max(count, capacity())
  * @post size() == count
  *
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_error when snapshotting failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
@@ -1985,7 +1956,7 @@ vector<T>::resize(size_type count)
  * @post capacity() == count
  * @post size() == std::min(_size, count)
  *
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_error when snapshotting failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
@@ -2139,7 +2110,7 @@ vector<T>::check_tx_stage_work()
  *
  * @post size() == size() + count
  *
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 template <typename... Args>
@@ -2177,7 +2148,7 @@ vector<T>::construct_at_end(size_type count, Args &&... args)
  *
  * @post size() == size() + std::distance(first, last)
  *
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename T>
 template <typename InputIt,
@@ -2309,7 +2280,7 @@ vector<T>::construct_or_assign(size_type idx, InputIt first, InputIt last)
  * get_recommended_capacity().
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -2388,7 +2359,7 @@ vector<T>::internal_insert(size_type idx, InputIt first, InputIt last)
  * @post capacity() == capacity_new
  *
  * @throw pmem::transaction_error when snapshotting failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
  */
@@ -2465,7 +2436,8 @@ vector<T>::shrink(size_type size_new)
 	assert(pmemobj_tx_stage() == TX_STAGE_WORK);
 	assert(size_new <= _size);
 
-	add_data_to_tx(size_new, _size - size_new);
+	if (!std::is_trivially_destructible<T>::value)
+		add_data_to_tx(size_new, _size - size_new);
 
 	for (size_type i = size_new; i < _size; ++i)
 		detail::destroy<value_type>(

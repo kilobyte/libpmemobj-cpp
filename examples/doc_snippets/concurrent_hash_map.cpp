@@ -1,34 +1,5 @@
-/*
- * Copyright 2019-2020, Intel Corporation
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in
- *       the documentation and/or other materials provided with the
- *       distribution.
- *
- *     * Neither the name of the copyright holder nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-3-Clause
+/* Copyright 2019-2020, Intel Corporation */
 
 /*
  * concurrent_hash_map.cpp -- C++ documentation snippets.
@@ -49,7 +20,7 @@ using namespace pmem::obj;
 using hashmap_type = concurrent_hash_map<p<int>, p<int>>;
 
 const int THREADS_NUM = 30;
-const bool remove_hashmap = true;
+const bool remove_hashmap = false;
 
 // This is basic example and we only need to use concurrent_hash_map. Hence we
 // will correlate memory pool root object with single instance of persistent
@@ -58,106 +29,161 @@ struct root {
 	persistent_ptr<hashmap_type> pptr;
 };
 
+// Before running this example, run:
+// pmempool create obj --layout="concurrent_hash_map" --size 1G path_to_a_pool
 int
 main(int argc, char *argv[])
 {
-	if (argc != 2)
-		std::cerr << "usage: " << argv[0] << " file-name" << std::endl;
+	pool<root> pop;
+	try {
+		if (argc != 2)
+			std::cerr << "usage: " << argv[0] << " file-name"
+				  << std::endl;
 
-	auto path = argv[1];
+		auto path = argv[1];
 
-	auto pop = pool<root>::open(path, "concurrent_hash_map example");
-	auto r = pop.root();
+		try {
+			pop = pool<root>::open(path, "concurrent_hash_map");
+		} catch (pmem::pool_error &e) {
+			std::cerr << e.what() << std::endl;
+			return -1;
+		}
 
-	if (r->pptr == nullptr) {
-		// Logic when file didn't exist when open() was called. After
-		// the pool was created, we have to allocate object of
-		// hashmap_type and attach it to the root object.
-		pmem::obj::transaction::run(pop, [&] {
-			r->pptr = make_persistent<hashmap_type>();
-		});
-	} else {
-		// Logic when file already exists. After opening of the pool we
-		// have to call runtime_initialize() function in order to
-		// recalculate mask and check for consistentcy.
+		auto r = pop.root()->pptr;
 
-		pop.root()->pptr->runtime_initialize();
+		if (r == nullptr) {
+			// Logic when file was first opened. First, we have to
+			// allocate object of hashmap_type and attach it to the
+			// root object.
+			pmem::obj::transaction::run(pop, [&] {
+				r = make_persistent<hashmap_type>();
+			});
 
-		// defragment the whole pool at the beginning
-		pop.root()->pptr->defragment();
-	}
+			r->runtime_initialize();
+		} else {
+			// Logic when hash_map already exists. After opening of
+			// the pool we have to call runtime_initialize()
+			// function in order to recalculate mask and check for
+			// consistentcy.
 
-	auto &map = *pop.root()->pptr;
+			r->runtime_initialize();
 
-	std::vector<std::thread> threads;
-	threads.reserve(static_cast<size_t>(THREADS_NUM));
-
-	// Insert THREADS_NUM / 3 key-value pairs to the hashmap. This operation
-	// is thread-safe.
-	for (int i = 0; i < THREADS_NUM / 3; ++i) {
-		threads.emplace_back([&]() {
-			for (int i = 0; i < 10 * THREADS_NUM; ++i) {
-				map.insert(hashmap_type::value_type(i, i));
+			// defragment the whole pool at the beginning
+			try {
+				r->defragment();
+			} catch (const pmem::defrag_error &e) {
+				std::cerr << "Defragmentation exception: "
+					  << e.what() << std::endl;
+				throw;
 			}
-		});
-	}
+		}
 
-	// Erase THREADS_NUM /3 key-value pairs from the hashmap. This operation
-	// is thread-safe.
-	for (int i = 0; i < THREADS_NUM / 3; ++i) {
-		threads.emplace_back([&]() {
-			for (int i = 0; i < 10 * THREADS_NUM; ++i) {
-				map.erase(i);
-			}
-		});
-	}
+		auto &map = *r;
 
-	// Check if given key is in the hashmap. For the time of an accessor
-	// life, the read-write lock is taken on the item.
-	for (int i = 0; i < THREADS_NUM / 3; ++i) {
-		threads.emplace_back([&]() {
-			for (int i = 0; i < 10 * THREADS_NUM; ++i) {
-				hashmap_type::accessor acc;
-				bool res = map.find(acc, i);
+		std::vector<std::thread> threads;
+		threads.reserve(static_cast<size_t>(THREADS_NUM));
 
-				if (res) {
-					assert(acc->first == i);
-					assert(acc->second >= i);
-					acc->second.get_rw() += 1;
-					pop.persist(acc->second);
+		// Insert THREADS_NUM / 3 key-value pairs to the hashmap. This
+		// operation is thread-safe.
+		for (int i = 0; i < THREADS_NUM / 3; ++i) {
+			threads.emplace_back([&]() {
+				for (int i = 0; i < 10 * THREADS_NUM; ++i) {
+					map.insert(
+						hashmap_type::value_type(i, i));
 				}
-			}
-		});
+			});
+		}
+
+		// Erase THREADS_NUM /3 key-value pairs from the hashmap. This
+		// operation is thread-safe.
+		for (int i = 0; i < THREADS_NUM / 3; ++i) {
+			threads.emplace_back([&]() {
+				for (int i = 0; i < 10 * THREADS_NUM; ++i) {
+					map.erase(i);
+				}
+			});
+		}
+
+		// Check if given key is in the hashmap. For the time of an
+		// accessor life, the read-write lock is taken on the item.
+		for (int i = 0; i < THREADS_NUM / 3; ++i) {
+			threads.emplace_back([&]() {
+				for (int i = 0; i < 10 * THREADS_NUM; ++i) {
+					hashmap_type::accessor acc;
+					bool res = map.find(acc, i);
+
+					if (res) {
+						assert(acc->first == i);
+						assert(acc->second >= i);
+						acc->second.get_rw() += 1;
+						pop.persist(acc->second);
+					}
+				}
+			});
+		}
+
+		for (auto &t : threads) {
+			t.join();
+		}
+		try {
+			// defragment the whole pool at the end
+			map.defragment();
+		} catch (const pmem::defrag_error &e) {
+			std::cerr << "Defragmentation exception: " << e.what()
+				  << std::endl;
+			throw;
+		} catch (const pmem::lock_error &e) {
+			std::cerr << "Defragmentation exception: " << e.what()
+				  << std::endl;
+			throw;
+		} catch (const std::range_error &e) {
+			std::cerr << "Defragmentation exception: " << e.what()
+				  << std::endl;
+			throw;
+		} catch (const std::runtime_error &e) {
+			std::cerr << "Defragmentation exception: " << e.what()
+				  << std::endl;
+			throw;
+		}
+		// Erase remaining itemes in map. This function is not
+		// thread-safe, hence the function is being called only after
+		// thread execution has completed.
+		try {
+			map.clear();
+		} catch (const pmem::transaction_out_of_memory &e) {
+			std::cerr << "Clear exception: " << e.what()
+				  << std::endl;
+			throw;
+		} catch (const pmem::transaction_free_error &e) {
+			std::cerr << "Clear exception: " << e.what()
+				  << std::endl;
+			throw;
+		}
+
+		// If hash map is to be removed, free_data() method should be
+		// called first. Otherwise, if deallocating internal hash map
+		// metadata in a destructor fail program might terminate.
+		if (remove_hashmap) {
+			map.free_data();
+
+			// map.clear() // WRONG
+			// After free_data() concurrent hash map cannot be used
+			// anymore!
+
+			transaction::run(pop, [&] {
+				delete_persistent<hashmap_type>(r);
+			});
+		}
+		pop.close();
+	} catch (std::exception &e) {
+		std::cerr << "Exception occured: " << e.what() << std::endl;
+		try {
+			pop.close();
+		} catch (const std::logic_error &e) {
+			std::cerr << "Exception: " << e.what() << std::endl;
+		}
+		return -1;
 	}
-
-	for (auto &t : threads) {
-		t.join();
-	}
-
-	// defragment the whole pool at the end
-	map.defragment();
-
-	// Erase remaining itemes in map. This function is not thread-safe,
-	// hence the function is being called only after thread execution has
-	// completed.
-	map.clear();
-
-	// If hash map is to be removed, free_data() method should be called
-	// first. Otherwise, if deallocating internal hash map metadata in
-	// a destructor fail program might terminate.
-	if (remove_hashmap) {
-		map.free_data();
-
-		// map.clear() // WRONG
-		// After free_data() concurrent hash map cannot be used anymore!
-
-		transaction::run(pop, [&] {
-			delete_persistent<hashmap_type>(pop.root()->pptr);
-		});
-	}
-
-	pop.close();
-
 	return 0;
 }
 

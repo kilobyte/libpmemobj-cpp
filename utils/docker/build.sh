@@ -1,38 +1,10 @@
 #!/usr/bin/env bash
-#
+# SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2017-2020, Intel Corporation
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#     * Redistributions of source code must retain the above copyright
-#       notice, this list of conditions and the following disclaimer.
-#
-#     * Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in
-#       the documentation and/or other materials provided with the
-#       distribution.
-#
-#     * Neither the name of the copyright holder nor the names of its
-#       contributors may be used to endorse or promote products derived
-#       from this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #
 # build-local.sh - runs a Docker container from a Docker image with environment
-#                  prepared for running libpmemobj-cpp tests and run those tests.
+#                  prepared for running libpmemobj-cpp builds and tests.
 #
 #
 # Notes:
@@ -40,38 +12,42 @@
 #   where the root of this project is on the host machine,
 # - set variables 'OS' and 'OS_VER' properly to a system you want to build this
 #	repo on (for proper values take a look on the list of Dockerfiles at the
-#   utils/docker/images directory), e.g. OS=ubuntu, OS_VER=19.04.
+#   utils/docker/images directory), e.g. OS=ubuntu, OS_VER=19.10.
 #
 
 set -e
 
-# Environment variables that can be customized (default values are after dash):
-export KEEP_CONTAINER=${KEEP_CONTAINER:-0}
+source $(dirname $0)/set-ci-vars.sh
+source $(dirname $0)/set-vars.sh
+source $(dirname $0)/valid-branches.sh
 
+if [[ "$CI_EVENT_TYPE" != "cron" && "$CI_BRANCH" != "coverity_scan" \
+	&& "$TYPE" == "coverity" ]]; then
+	echo "INFO: Skip Coverity scan job if build is triggered neither by " \
+		"'cron' nor by a push to 'coverity_scan' branch"
+	exit 0
+fi
+
+if [[ ( "$CI_EVENT_TYPE" == "cron" || "$CI_BRANCH" == "coverity_scan" )\
+	&& "$TYPE" != "coverity" ]]; then
+	echo "INFO: Skip regular jobs if build is triggered either by 'cron'" \
+		" or by a push to 'coverity_scan' branch"
+	exit 0
+fi
 
 if [[ -z "$OS" || -z "$OS_VER" ]]; then
 	echo "ERROR: The variables OS and OS_VER have to be set " \
-		"(e.g. OS=ubuntu, OS_VER=19.04)."
+		"(eg. OS=fedora, OS_VER=31)."
 	exit 1
 fi
 
 if [[ -z "$HOST_WORKDIR" ]]; then
-	HOST_WORKDIR=$(readlink -f ../..)
+	echo "ERROR: The variable HOST_WORKDIR has to contain a path to " \
+		"the root of this project on the host machine"
+	exit 1
 fi
 
-if [[ "$TRAVIS_EVENT_TYPE" == "cron" || "$TRAVIS_BRANCH" == "coverity_scan" ]]; then
-	if [[ "$TYPE" != "coverity" ]]; then
-		echo "Skipping non-Coverity job for cron/Coverity build"
-		exit 0
-	fi
-else
-	if [[ "$TYPE" == "coverity" ]]; then
-		echo "Skipping Coverity job for non cron/Coverity build"
-		exit 0
-	fi
-fi
-
-imageName=${DOCKERHUB_REPO}:1.9-${OS}-${OS_VER}
+imageName=${DOCKERHUB_REPO}:1.10-${OS}-${OS_VER}
 containerName=libpmemobj-cpp-${OS}-${OS_VER}
 
 if [[ "$command" == "" ]]; then
@@ -112,21 +88,21 @@ fi
 
 if [ -n "$DNS_SERVER" ]; then DNS_SETTING=" --dns=$DNS_SERVER "; fi
 
-# Only run doc update on pmem/libpmemobj-cpp master branch
-if [[ "$TRAVIS_BRANCH" != "master" || "$TRAVIS_PULL_REQUEST" != "false" || "$TRAVIS_REPO_SLUG" != "${GITHUB_REPO}" ]]; then
+# Only run doc update on $GITHUB_REPO master or stable branch
+if [[ -z "${CI_BRANCH}" || -z "${TARGET_BRANCHES[${CI_BRANCH}]}" || "$CI_EVENT_TYPE" == "pull_request" || "$CI_REPO_SLUG" != "${GITHUB_REPO}" ]]; then
 	AUTO_DOC_UPDATE=0
 fi
 
-WORKDIR=/libpmemobj-cpp
-SCRIPTSDIR=$WORKDIR/utils/docker
-
-# check if we are running on a CI (Travis or GitHub Actions)
+# Check if we are running on a CI (Travis or GitHub Actions)
 [ -n "$GITHUB_ACTIONS" -o -n "$TRAVIS" ] && CI_RUN="YES" || CI_RUN="NO"
 
 # do not allocate a pseudo-TTY if we are running on GitHub Actions
 [ ! $GITHUB_ACTIONS ] && TTY='-t' || TTY=''
 
-echo Building ${OS}-${OS_VER}
+WORKDIR=/libpmemobj-cpp
+SCRIPTSDIR=$WORKDIR/utils/docker
+
+echo Building on ${OS}-${OS_VER}
 
 # Run a container with
 #  - environment variables set (--env)
@@ -137,21 +113,26 @@ docker run --privileged=true --name=$containerName -i $TTY \
 	${docker_opts} \
 	--env http_proxy=$http_proxy \
 	--env https_proxy=$https_proxy \
-	--env AUTO_DOC_UPDATE=$AUTO_DOC_UPDATE \
-	--env GITHUB_TOKEN=$GITHUB_TOKEN \
 	--env WORKDIR=$WORKDIR \
 	--env SCRIPTSDIR=$SCRIPTSDIR \
-	--env TRAVIS_REPO_SLUG=$TRAVIS_REPO_SLUG \
-	--env TRAVIS_BRANCH=$TRAVIS_BRANCH \
-	--env TRAVIS_EVENT_TYPE=$TRAVIS_EVENT_TYPE \
+	--env COVERAGE=$COVERAGE \
+	--env AUTO_DOC_UPDATE=$AUTO_DOC_UPDATE \
+	--env CI_RUN=$CI_RUN \
+	--env TRAVIS=$TRAVIS \
+	--env GITHUB_REPO=$GITHUB_REPO \
+	--env CI_COMMIT_RANGE=$CI_COMMIT_RANGE \
+	--env CI_COMMIT=$CI_COMMIT \
+	--env CI_REPO_SLUG=$CI_REPO_SLUG \
+	--env CI_BRANCH=$CI_BRANCH \
+	--env CI_EVENT_TYPE=$CI_EVENT_TYPE \
+	--env GITHUB_TOKEN=$GITHUB_TOKEN \
 	--env COVERITY_SCAN_TOKEN=$COVERITY_SCAN_TOKEN \
 	--env COVERITY_SCAN_NOTIFICATION_EMAIL=$COVERITY_SCAN_NOTIFICATION_EMAIL \
-	--env COVERAGE=$COVERAGE \
 	--env CHECK_CPP_STYLE=${CHECK_CPP_STYLE:-ON} \
 	--env TESTS_LONG=${TESTS_LONG:-OFF} \
 	--env TESTS_TBB=${TESTS_TBB:-ON} \
-	--env CI_RUN=$CI_RUN \
 	--env TZ='Europe/Warsaw' \
+	--shm-size=4G \
 	-v $HOST_WORKDIR:$WORKDIR \
 	-v /etc/localtime:/etc/localtime \
 	-w $SCRIPTSDIR \

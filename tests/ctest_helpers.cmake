@@ -1,33 +1,5 @@
-#
+# SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2018-2020, Intel Corporation
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#     * Redistributions of source code must retain the above copyright
-#       notice, this list of conditions and the following disclaimer.
-#
-#     * Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in
-#       the documentation and/or other materials provided with the
-#       distribution.
-#
-#     * Neither the name of the copyright holder nor the names of its
-#       contributors may be used to endorse or promote products derived
-#       from this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #
 # ctest_helpers.cmake - helper functions for tests/CMakeLists.txt
@@ -65,30 +37,6 @@ function(find_gdb)
 	endif()
 endfunction()
 
-function(find_pmemcheck)
-	set(ENV{PATH} ${VALGRIND_PREFIX}/bin:$ENV{PATH})
-	execute_process(COMMAND valgrind --tool=pmemcheck --help
-			RESULT_VARIABLE VALGRIND_PMEMCHECK_RET
-			OUTPUT_QUIET
-			ERROR_QUIET)
-	if(VALGRIND_PMEMCHECK_RET)
-		set(VALGRIND_PMEMCHECK_FOUND 0 CACHE INTERNAL "")
-	else()
-		set(VALGRIND_PMEMCHECK_FOUND 1 CACHE INTERNAL "")
-	endif()
-
-	if(VALGRIND_PMEMCHECK_FOUND)
-		execute_process(COMMAND valgrind --tool=pmemcheck true
-				ERROR_VARIABLE PMEMCHECK_OUT
-				OUTPUT_QUIET)
-
-		string(REGEX MATCH ".*pmemcheck-([0-9.]*),.*" PMEMCHECK_OUT "${PMEMCHECK_OUT}")
-		set(PMEMCHECK_VERSION ${CMAKE_MATCH_1} CACHE INTERNAL "")
-	else()
-		message(WARNING "Valgrind pmemcheck NOT found. Pmemcheck tests will not be performed.")
-	endif()
-endfunction()
-
 function(find_packages)
 	if(PKG_CONFIG_FOUND)
 		pkg_check_modules(CURSES QUIET ncurses)
@@ -113,8 +61,7 @@ function(find_packages)
 			if ((NOT(PMEMCHECK_VERSION LESS 1.0)) AND PMEMCHECK_VERSION LESS 2.0)
 				find_program(PMREORDER names pmreorder HINTS ${LIBPMEMOBJ_PREFIX}/bin)
 
-				# copy_on_write support since libpmemobj 1.6
-				if(PMREORDER AND NOT (LIBPMEMOBJ_VERSION_MINOR LESS 6))
+				if(PMREORDER)
 					set(ENV{PATH} ${LIBPMEMOBJ_PREFIX}/bin:$ENV{PATH})
 					set(PMREORDER_SUPPORTED true CACHE INTERNAL "pmreorder support")
 				endif()
@@ -139,11 +86,6 @@ function(build_test_ext)
 endfunction()
 
 function(build_test name)
-	# skip posix tests
-	if(${name} MATCHES "posix$" AND WIN32)
-		return()
-	endif()
-
 	set(srcs ${ARGN})
 	prepend(srcs ${CMAKE_CURRENT_SOURCE_DIR} ${srcs})
 
@@ -234,7 +176,7 @@ function(skip_test name message)
 	set_tests_properties(${name}_${message} PROPERTIES COST 0)
 endfunction()
 
-# adds testcase with name, tracer, and cmake_script responsible for running it
+# adds testcase only if tracer is found and target is build, skips adding test otherwise
 function(add_test_common name tracer testcase cmake_script)
 	if(${tracer} STREQUAL "")
 	    set(tracer none)
@@ -263,10 +205,10 @@ function(add_test_common name tracer testcase cmake_script)
 
 	# if test was not build
 	if (NOT TARGET ${name})
-		return()
+		message(FATAL_ERROR "${executable} not build.")
 	endif()
 
-	# skip all tests with pmemcheck/memcheck/drd on windows
+	# skip all valgrind tests on windows
 	if ((NOT ${tracer} STREQUAL none) AND WIN32)
 		return()
 	endif()
@@ -274,6 +216,7 @@ function(add_test_common name tracer testcase cmake_script)
 	add_testcase(${name} ${tracer} ${testcase} ${cmake_script})
 endfunction()
 
+# adds testscase with optional TRACERS and SCRIPT parameters
 function(add_test_generic)
 	set(oneValueArgs NAME CASE SCRIPT)
 	set(multiValueArgs TRACERS)

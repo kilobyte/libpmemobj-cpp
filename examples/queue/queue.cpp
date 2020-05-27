@@ -1,34 +1,5 @@
-/*
- * Copyright 2015-2018, Intel Corporation
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in
- *       the documentation and/or other materials provided with the
- *       distribution.
- *
- *     * Neither the name of the copyright holder nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-3-Clause
+/* Copyright 2015-2020, Intel Corporation */
 
 /*
  * queue.cpp -- queue example implemented using pmemobj cpp bindings
@@ -185,30 +156,60 @@ main(int argc, char *argv[])
 	queue_op op = parse_queue_op(argv[2]);
 
 	pool<examples::pmem_queue> pop;
+	persistent_ptr<examples::pmem_queue> q;
 
-	if (file_exists(path) != 0) {
-		pop = pool<examples::pmem_queue>::create(
-			path, LAYOUT, PMEMOBJ_MIN_POOL, CREATE_MODE_RW);
-	} else {
-		pop = pool<examples::pmem_queue>::open(path, LAYOUT);
+	try {
+		if (file_exists(path) != 0) {
+			pop = pool<examples::pmem_queue>::create(
+				path, LAYOUT, PMEMOBJ_MIN_POOL, CREATE_MODE_RW);
+		} else {
+			pop = pool<examples::pmem_queue>::open(path, LAYOUT);
+		}
+		q = pop.root();
+	} catch (const pmem::pool_error &e) {
+		std::cerr << "Exception: " << e.what() << std::endl;
+		return 1;
+	} catch (const pmem::transaction_error &e) {
+		std::cerr << "Exception: " << e.what() << std::endl;
+		return 1;
 	}
 
-	auto q = pop.root();
 	switch (op) {
 		case QUEUE_PUSH:
-			q->push(pop, std::stoull(argv[3]));
+			try {
+				q->push(pop, std::stoull(argv[3]));
+			} catch (const std::runtime_error &e) {
+				std::cerr << "Exception: " << e.what()
+					  << std::endl;
+				return 1;
+			}
 			break;
 		case QUEUE_POP:
-			std::cout << q->pop(pop) << std::endl;
+			try {
+				std::cout << q->pop(pop) << std::endl;
+			} catch (const std::runtime_error &e) {
+				std::cerr << "Exception: " << e.what()
+					  << std::endl;
+				return 1;
+			} catch (const std::logic_error &e) {
+				std::cerr << "Exception: " << e.what()
+					  << std::endl;
+				return 1;
+			}
 			break;
 		case QUEUE_SHOW:
 			q->show();
 			break;
 		default:
-			throw std::invalid_argument("invalid queue operation");
+			std::cerr << "Invalid queue operation" << std::endl;
+			return 1;
 	}
 
-	pop.close();
-
+	try {
+		pop.close();
+	} catch (const std::logic_error &e) {
+		std::cerr << "Exception: " << e.what() << std::endl;
+		return 1;
+	}
 	return 0;
 }

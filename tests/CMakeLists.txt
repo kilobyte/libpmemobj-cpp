@@ -1,33 +1,5 @@
-#
+# SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2018-2020, Intel Corporation
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#     * Redistributions of source code must retain the above copyright
-#       notice, this list of conditions and the following disclaimer.
-#
-#     * Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in
-#       the documentation and/or other materials provided with the
-#       distribution.
-#
-#     * Neither the name of the copyright holder nor the names of its
-#       contributors may be used to endorse or promote products derived
-#       from this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 include(ctest_helpers.cmake)
 
@@ -91,13 +63,9 @@ function(build_example_queue)
 endfunction()
 
 function(build_example_pman)
-	if(CURSES_FOUND AND NOT WIN32)
-		add_executable(ex-pman ../examples/pman/pman.cpp)
-		target_include_directories(ex-pman PUBLIC ${CURSES_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../examples)
-		target_link_libraries(ex-pman ${LIBPMEMOBJ_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${CURSES_LIBRARIES})
-	else()
-		message(WARNING "ncurses not found - pman test won't be build")
-	endif()
+	add_executable(ex-pman ../examples/pman/pman.cpp)
+	target_include_directories(ex-pman PUBLIC ${CURSES_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../examples)
+	target_link_libraries(ex-pman ${LIBPMEMOBJ_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${CURSES_LIBRARIES})
 endfunction()
 
 add_executable(check_is_pmem check_is_pmem/check_is_pmem.cpp)
@@ -107,8 +75,12 @@ if(BUILD_EXAMPLES AND NO_GCC_VARIADIC_TEMPLATE_BUG)
 	build_example_queue()
 	add_test_generic(NAME ex-queue CASE 0 TRACERS none)
 
-	build_example_pman()
-	add_test_generic(NAME ex-pman CASE 0 TRACERS none)
+	if (CURSES_FOUND AND NOT WIN32)
+		build_example_pman()
+		add_test_generic(NAME ex-pman CASE 0 TRACERS none)
+	else()
+		message(WARNING "ncurses not found - pman test won't be build")
+	endif()
 elseif(BUILD_EXAMPLES)
 	message(WARNING "Skipping examples tests because of gcc variadic template bug")
 	skip_test("examples_tests" "SKIPPED_BECAUSE_OF_GCC_VARIADIC_TEMPLATE_BUG")
@@ -134,8 +106,10 @@ add_test_generic(NAME make_persistent TRACERS none pmemcheck)
 build_test(make_persistent_atomic make_persistent_atomic/make_persistent_atomic.cpp)
 add_test_generic(NAME make_persistent_atomic TRACERS none pmemcheck)
 
-build_test(mutex_posix mutex_posix/mutex_posix.cpp)
-add_test_generic(NAME mutex_posix TRACERS drd helgrind pmemcheck)
+if (NOT WIN32)
+	build_test(mutex_posix mutex_posix/mutex_posix.cpp)
+	add_test_generic(NAME mutex_posix TRACERS drd helgrind pmemcheck)
+endif()
 
 build_test(pool pool/pool.cpp)
 add_test_generic(NAME pool CASE 0 TRACERS none)
@@ -166,8 +140,10 @@ endif()
 build_test(p_ext p_ext/p_ext.cpp)
 add_test_generic(NAME p_ext TRACERS none pmemcheck)
 
-build_test(shared_mutex_posix shared_mutex_posix/shared_mutex_posix.cpp)
-add_test_generic(NAME shared_mutex_posix TRACERS drd helgrind pmemcheck)
+if (NOT WIN32)
+	build_test(shared_mutex_posix shared_mutex_posix/shared_mutex_posix.cpp)
+	add_test_generic(NAME shared_mutex_posix TRACERS drd helgrind pmemcheck)
+endif()
 
 build_test(transaction transaction/transaction.cpp)
 add_test_generic(NAME transaction TRACERS none pmemcheck memcheck)
@@ -193,8 +169,10 @@ if(NO_CHRONO_BUG)
 	build_test(cond_var cond_var/cond_var.cpp)
 	add_test_generic(NAME cond_var TRACERS none)
 
-	build_test(cond_var_posix cond_var_posix/cond_var_posix.cpp)
-	add_test_generic(NAME cond_var_posix TRACERS drd helgrind pmemcheck)
+	if (NOT WIN32)
+		build_test(cond_var_posix cond_var_posix/cond_var_posix.cpp)
+		add_test_generic(NAME cond_var_posix TRACERS drd helgrind pmemcheck)
+	endif()
 
 	build_test(mutex mutex/mutex.cpp)
 	add_test_generic(NAME mutex TRACERS none)
@@ -202,8 +180,10 @@ if(NO_CHRONO_BUG)
 	build_test(shared_mutex shared_mutex/shared_mutex.cpp)
 	add_test_generic(NAME shared_mutex TRACERS none)
 
-	build_test(timed_mtx_posix timed_mtx_posix/timed_mtx_posix.cpp)
-	add_test_generic(NAME timed_mtx_posix TRACERS drd helgrind pmemcheck)
+	if (NOT WIN32)
+		build_test(timed_mtx_posix timed_mtx_posix/timed_mtx_posix.cpp)
+		add_test_generic(NAME timed_mtx_posix TRACERS drd helgrind pmemcheck)
+	endif()
 
 	build_test(timed_mtx timed_mtx/timed_mtx.cpp)
 	add_test_generic(NAME timed_mtx TRACERS none)
@@ -251,6 +231,13 @@ if (TEST_ARRAY)
 
 	build_test(array_iterator array_iterator/array_iterator.cpp)
 	add_test_generic(NAME array_iterator TRACERS none pmemcheck)
+
+	build_test(array_iterator_noconv array_iterator/array_iterator_noconv.cpp)
+	check_cxx_compiler_flag(-Wno-sign-conversion NO_SIGN_CONVERSION_FLAG)
+	if (NO_SIGN_CONVERSION_FLAG)
+		target_compile_options(array_iterator_noconv PUBLIC -Wno-sign-conversion)
+	endif()
+	add_test_generic(NAME array_iterator_noconv TRACERS none)
 
 	if(NOT CLANG_DESTRUCTOR_REFERENCE_BUG_PRESENT)
 		build_test(array_modifiers array_modifiers/array_modifiers.cpp)
@@ -365,6 +352,9 @@ if (TEST_STRING)
 	build_test(string_modifiers string_modifiers/string_modifiers.cpp)
 	add_test_generic(NAME string_modifiers TRACERS none memcheck pmemcheck)
 
+	build_test(string_swap string_modifiers/string_swap.cpp)
+	add_test_generic(NAME string_swap TRACERS none memcheck pmemcheck)
+
 	build_test(string_snapshot string_snapshot/string_snapshot.cpp)
 	add_test_generic(NAME string_snapshot TRACERS none memcheck pmemcheck)
 
@@ -390,6 +380,11 @@ if(TEST_CONCURRENT_HASHMAP)
 	add_test_generic(NAME concurrent_hash_map_insert_lookup_mock CASE 0 TRACERS memcheck pmemcheck
 			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
 
+	if(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND AND TESTS_LONG)
+		add_test_generic(NAME concurrent_hash_map_insert_lookup_mock CASE 0 TRACERS helgrind drd
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+	endif()
+
 	build_test(concurrent_hash_map_insert_erase concurrent_hash_map_insert_erase/concurrent_hash_map_insert_erase.cpp)
 	add_test_generic(NAME concurrent_hash_map_insert_erase CASE 0 TRACERS none
 			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
@@ -402,6 +397,14 @@ if(TEST_CONCURRENT_HASHMAP)
 	add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 1 TRACERS memcheck pmemcheck
 			SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
 
+	if(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND)
+		add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 0 TRACERS helgrind drd
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+		add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 1 TRACERS helgrind drd
+			SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
+	endif()
+
+	# This test should not be run under helgrind due to intermittent failures (most probably false-positive, ref. issue #469)
 	build_test(concurrent_hash_map_rehash concurrent_hash_map_rehash/concurrent_hash_map_rehash.cpp)
 	add_test_generic(NAME concurrent_hash_map_rehash CASE 0 TRACERS none
 			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
@@ -414,6 +417,16 @@ if(TEST_CONCURRENT_HASHMAP)
 	add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS memcheck pmemcheck
 			SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
 
+	if(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND)
+		# This test should not be run under helgrind due to intermittent failures (most probably false-positive, ref. issue #469)
+		if(TESTS_LONG)
+			add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 0 TRACERS drd
+					SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+			add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS drd
+					SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
+		endif()
+	endif()
+
 	build_test(concurrent_hash_map_rehash_recursive concurrent_hash_map_rehash_recursive/concurrent_hash_map_rehash_recursive.cpp)
 	add_test_generic(NAME concurrent_hash_map_rehash_recursive CASE 0 TRACERS none
 			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
@@ -421,6 +434,11 @@ if(TEST_CONCURRENT_HASHMAP)
 	build_test_defrag(concurrent_hash_map_rehash_recursive_mock concurrent_hash_map_rehash_recursive/concurrent_hash_map_rehash_recursive.cpp)
 	add_test_generic(NAME concurrent_hash_map_rehash_recursive_mock CASE 0 TRACERS memcheck pmemcheck
 			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	if(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND AND TESTS_LONG)
+		add_test_generic(NAME concurrent_hash_map_rehash_recursive_mock CASE 0 TRACERS helgrind drd
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+	endif()
 
 	build_test(concurrent_hash_map_rehash_deadlock concurrent_hash_map_rehash_deadlock/concurrent_hash_map_rehash_deadlock.cpp)
 	add_test_generic(NAME concurrent_hash_map_rehash_deadlock CASE 0 TRACERS none
@@ -444,6 +462,11 @@ if(TEST_CONCURRENT_HASHMAP)
 	add_test_generic(NAME concurrent_hash_map_insert_reopen CASE 0 TRACERS none memcheck pmemcheck
 			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
 
+	if(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND)
+		add_test_generic(NAME concurrent_hash_map_insert_reopen CASE 0 TRACERS drd helgrind
+				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+	endif()
+
 	build_test_ext(NAME concurrent_hash_map_insert_reopen_deprecated SRC_FILES concurrent_hash_map_insert_reopen/concurrent_hash_map_insert_reopen.cpp
 			BUILD_OPTIONS -DUSE_DEPRECATED_RUNTIME_INITIALIZE)
 	check_cxx_compiler_flag(-Wdeprecated-declarations deprecated_declarations)
@@ -451,36 +474,6 @@ if(TEST_CONCURRENT_HASHMAP)
 		target_compile_options(concurrent_hash_map_insert_reopen_deprecated PUBLIC -Wno-deprecated-declarations)
 	endif()
 	add_test_generic(NAME concurrent_hash_map_insert_reopen_deprecated TRACERS none)
-
-	if(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND)
-		add_test_generic(NAME concurrent_hash_map_insert_reopen CASE 0 TRACERS drd helgrind
-				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
-		add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 0 TRACERS helgrind drd
-				SCRIPT concurrent_hash_map/check_is_pmem.cmake)
-		add_test_generic(NAME concurrent_hash_map_insert_erase_mock CASE 1 TRACERS helgrind drd
-				SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
-
-		# disabled due to intermittent failures (most probably false-positive reported by helgrind, ref. issue #469)
-		# add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 0 TRACERS helgrind
-		#		SCRIPT concurrent_hash_map/check_is_pmem.cmake)
-		# add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS helgrind
-		#		SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
-
-		if (TESTS_LONG)
-			add_test_generic(NAME concurrent_hash_map_insert_lookup_mock CASE 0 TRACERS helgrind drd
-					SCRIPT concurrent_hash_map/check_is_pmem.cmake)
-
-			add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 0 TRACERS drd
-					SCRIPT concurrent_hash_map/check_is_pmem.cmake)
-			add_test_generic(NAME concurrent_hash_map_rehash_mock CASE 1 TRACERS drd
-					SCRIPT concurrent_hash_map/check_is_pmem_defrag.cmake)
-
-			add_test_generic(NAME concurrent_hash_map_rehash_recursive_mock CASE 0 TRACERS helgrind drd
-					SCRIPT concurrent_hash_map/check_is_pmem.cmake)
-		endif()
-		# disabled due to intermittent failures (most probably false-positive reported by helgrind, ref. issue #469)
-		# add_test_generic(NAME concurrent_hash_map_rehash CASE 0 TRACERS helgrind)
-	endif()
 
 	build_test(concurrent_hash_map_rehash_check concurrent_hash_map_rehash_check/concurrent_hash_map_rehash_check.cpp)
 	add_test_generic(NAME concurrent_hash_map_rehash_check TRACERS none memcheck pmemcheck)
@@ -532,11 +525,11 @@ if(TEST_CONCURRENT_HASHMAP)
 	if(PMREORDER_SUPPORTED)
 		build_test(concurrent_hash_map_pmreorder_simple concurrent_hash_map_pmreorder_simple/concurrent_hash_map_pmreorder_simple.cpp)
 		add_test_generic(NAME concurrent_hash_map_pmreorder_simple CASE 0 TRACERS none
-				SCRIPT concurrent_hash_map/pmreorder.cmake)
+				SCRIPT cmake/pmreorder.cmake)
 
 		build_test(concurrent_hash_map_pmreorder_multiple_buckets concurrent_hash_map_pmreorder_multiple_buckets/concurrent_hash_map_pmreorder_multiple_buckets.cpp)
 		add_test_generic(NAME concurrent_hash_map_pmreorder_multiple_buckets CASE 0 TRACERS none
-				SCRIPT concurrent_hash_map/pmreorder.cmake)
+				SCRIPT cmake/pmreorder.cmake)
 
 		build_test(concurrent_hash_map_pmreorder_erase concurrent_hash_map_pmreorder_erase/concurrent_hash_map_pmreorder_erase.cpp)
 		add_test_generic(NAME concurrent_hash_map_pmreorder_erase CASE 0 TRACERS none)
@@ -806,6 +799,65 @@ if (TEST_ENUMERABLE_THREAD_SPECIFIC)
 	build_test(enumerable_thread_specific_ctor enumerable_thread_specific_ctor/enumerable_thread_specific_ctor.cpp)
 	add_test_generic(NAME enumerable_thread_specific_ctor CASE 0 TRACERS none memcheck pmemcheck
 			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+endif()
+
+if(TEST_CONCURRENT_MAP)
+	build_test(concurrent_map concurrent_map/concurrent_map.cpp)
+	# XXX: Add helgrind tracer for this test when we will fix false-positive with lock order
+	add_test_generic(NAME concurrent_map TRACERS none memcheck pmemcheck drd)
+
+	build_test(concurrent_map_singlethread concurrent_map_singlethread/concurrent_map_singlethread.cpp)
+	add_test_generic(NAME concurrent_map_singlethread TRACERS none memcheck pmemcheck)
+
+	build_test(concurrent_map_tx concurrent_map_tx/concurrent_map_tx.cpp)
+	add_test_generic(NAME concurrent_map_tx TRACERS none memcheck pmemcheck)
+
+	if(TESTS_CONCURRENT_GDB AND GDB_FOUND)
+		if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+			build_test(concurrent_map_mt_gdb concurrent_map_mt_gdb/concurrent_map_mt_gdb.cpp)
+			add_test_generic(NAME concurrent_map_mt_gdb TRACERS none CASE 0)
+			add_test_generic(NAME concurrent_map_mt_gdb TRACERS none CASE 1)
+			add_test_generic(NAME concurrent_map_mt_gdb TRACERS none CASE 2)
+		else()
+			message(WARNING "Skipping concurrent_map_mt_gdb test because it is non-debug build")
+		endif()
+	elseif(TESTS_CONCURRENT_GDB)
+		message(WARNING "Skipping concurrent_map_mt_gdb test because GDB was not found")
+	endif()
+
+	build_test(concurrent_map_insert_reopen concurrent_map_insert_reopen/concurrent_map_insert_reopen.cpp)
+	# XXX: Add helgrind tracer for this test when we will fix false-positive with lock order
+	add_test_generic(NAME concurrent_map_insert_reopen CASE 0 TRACERS none memcheck pmemcheck drd
+			SCRIPT concurrent_hash_map/check_is_pmem.cmake)
+
+	if(PMREORDER_SUPPORTED)
+		build_test(concurrent_map_pmreorder_simple concurrent_map_pmreorder_simple/concurrent_map_pmreorder_simple.cpp)
+		add_test_generic(NAME concurrent_map_pmreorder_simple CASE 0 TRACERS none
+				SCRIPT cmake/pmreorder.cmake)
+		build_test(concurrent_map_pmreorder_erase concurrent_map_pmreorder_erase/concurrent_map_pmreorder_erase.cpp)
+		add_test_generic(NAME concurrent_map_pmreorder_erase CASE 0 TRACERS none)
+
+		if(GDB_FOUND)
+			set(TEST concurrent_map_pmreorder_break_insert)
+			build_test(${TEST} concurrent_map_pmreorder_simple/concurrent_map_pmreorder_simple.cpp)
+
+			# add 5 concurrent_map_pmreorder_break_insert test cases
+			set(CURRENT_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/${TEST})
+			set(CMAKE_SCRIPT ${CURRENT_TEST_DIR}/${TEST})
+			set(GDB_SCRIPT ${CURRENT_TEST_DIR}/break_before_set_next)
+			foreach(case RANGE 4)
+				math(EXPR IGNORE "${case} + 1")
+				math(EXPR PERSIST "${case} + 2")
+				configure_file("${GDB_SCRIPT}.gdb.in" "${GDB_SCRIPT}_${PERSIST}.gdb" @ONLY)
+				configure_file("${CMAKE_SCRIPT}.cmake.in" "${CMAKE_SCRIPT}_${case}.cmake" @ONLY)
+				add_test_generic(NAME ${TEST} CASE ${case} TRACERS none)
+			endforeach()
+		else()
+			message(WARNING "Skipping concurrent_map_pmreorder_break_insert test because GDB was not found")
+		endif()
+	else()
+		message(WARNING "Skipping pmreorder tests because of no pmreorder support")
+	endif()
 endif()
 
 add_subdirectory(external)

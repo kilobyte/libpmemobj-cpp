@@ -1,46 +1,18 @@
-/*
- * Copyright 2019, Intel Corporation
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in
- *       the documentation and/or other materials provided with the
- *       distribution.
- *
- *     * Neither the name of the copyright holder nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-3-Clause
+/* Copyright 2019-2020, Intel Corporation */
 
 #include "unittest.hpp"
 
 #include <libpmemobj++/container/string.hpp>
 #include <libpmemobj++/make_persistent.hpp>
+#include <libpmemobj.h>
 
 namespace nvobj = pmem::obj;
 
 using S = pmem::obj::string;
 
 struct root {
-	nvobj::persistent_ptr<S> s, s1, str;
+	nvobj::persistent_ptr<S> s, s1, str, str2;
 };
 
 /**
@@ -116,6 +88,9 @@ check_tx_abort(pmem::obj::pool<struct root> &pop, const char *str,
 			expected = "01234567890";
 		}
 
+		assert_tx_abort(pop, s, [&] { s.clear(); });
+		verify_string(s, expected);
+
 		assert_tx_abort(pop, s, [&] { s.erase(); });
 		verify_string(s, expected);
 
@@ -129,6 +104,10 @@ check_tx_abort(pmem::obj::pool<struct root> &pop, const char *str,
 		verify_string(s, expected);
 
 		assert_tx_abort(pop, s, [&] { s.erase(s.begin(), s.end()); });
+		verify_string(s, expected);
+
+		assert_tx_abort(pop, s,
+				[&] { s.erase(s.begin() + 5, s.end()); });
 		verify_string(s, expected);
 
 		assert_tx_abort(pop, s, [&] { s.append(5, 'a'); });
@@ -312,9 +291,11 @@ check_tx_abort(pmem::obj::pool<struct root> &pop, const char *str,
 
 		nvobj::transaction::run(pop, [&] {
 			r->str = nvobj::make_persistent<S>("ABCDEF");
+			r->str2 = nvobj::make_persistent<S>("ABCDEF");
 		});
 
 		auto &str = *r->str;
+		auto &expected_str = *r->str2;
 
 		assert_tx_abort(pop, s, [&] { s.append(str); });
 		verify_string(s, expected);
@@ -413,24 +394,49 @@ check_tx_abort(pmem::obj::pool<struct root> &pop, const char *str,
 			s.replace(s.cend(), s.cend(), str.cbegin(), str.cend());
 		});
 		verify_string(s, expected);
+
+		assert_tx_abort(pop, s, [&] { s.swap(str); });
+		verify_string(s, expected);
+		verify_string(str, expected_str);
+
+		assert_tx_abort(pop, s, [&] { pmem::obj::swap(s, str); });
+		verify_string(s, expected);
+		verify_string(str, expected_str);
+
+		assert_tx_abort(pop, s, [&] {
+			s.free_data();
+			s = "BEEF";
+		});
+		verify_string(s, expected);
+
+		assert_tx_abort(pop, s, [&] {
+			s.free_data();
+			s = "BEEFBEEFBEEFBEEFBEEFBEEFBEEFBEEFBEEF"
+			    "BEEFBEEFBEEFBEEFBEEFBEEFBEEFBEEFBEEF";
+		});
+		verify_string(s, expected);
 	} catch (std::exception &e) {
 		UT_FATALexc(e);
 	}
 
 	nvobj::transaction::run(pop, [&] {
+		r->s->free_data();
+		r->s1->free_data();
+		r->str->free_data();
+		r->str2->free_data();
 		nvobj::delete_persistent<S>(r->s);
 		nvobj::delete_persistent<S>(r->s1);
+		nvobj::delete_persistent<S>(r->str);
+		nvobj::delete_persistent<S>(r->str2);
 	});
+	UT_ASSERT(OID_IS_NULL(pmemobj_first(pop.handle())));
 }
 
-int
-main(int argc, char *argv[])
+static void
+test(int argc, char *argv[])
 {
-	START();
-
 	if (argc < 2) {
-		std::cerr << "usage: " << argv[0] << " file-name" << std::endl;
-		return 1;
+		UT_FATAL("usage: %s file-name", argv[0]);
 	}
 
 	auto path = argv[1];
@@ -456,8 +462,12 @@ main(int argc, char *argv[])
 		       "0123456789012345678901234567890123456789"
 		       "0123456789",
 		       true);
-
+	UT_ASSERT(OID_IS_NULL(pmemobj_first(pop.handle())));
 	pop.close();
+}
 
-	return 0;
+int
+main(int argc, char *argv[])
+{
+	return run_test([&] { test(argc, argv); });
 }

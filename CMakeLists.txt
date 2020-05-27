@@ -1,41 +1,13 @@
-#
+# SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2018-2020, Intel Corporation
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#     * Redistributions of source code must retain the above copyright
-#       notice, this list of conditions and the following disclaimer.
-#
-#     * Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in
-#       the documentation and/or other materials provided with the
-#       distribution.
-#
-#     * Neither the name of the copyright holder nor the names of its
-#       contributors may be used to endorse or promote products derived
-#       from this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 cmake_minimum_required(VERSION 3.3)
 project(libpmemobj-cpp C CXX)
 
 set(VERSION_MAJOR 1)
-set(VERSION_MINOR 9)
+set(VERSION_MINOR 10)
 set(VERSION_PATCH 0)
-#set(VERSION_PRERELEASE rc2)
+set(VERSION_PRERELEASE rc1)
 
 set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR})
 if (VERSION_PATCH GREATER 0)
@@ -80,6 +52,7 @@ option(USE_UBSAN "enable UndefinedBehaviorSanitizer (debugging)" OFF)
 option(TESTS_USE_FORCED_PMEM "run tests with PMEM_IS_PMEM_FORCE=1" OFF)
 option(TESTS_USE_VALGRIND "enable tests with valgrind (if found)" ON)
 option(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND "enable concurrent_hash_map tests with drd and helgrind (can only be run on PMEM)." OFF)
+option(TESTS_CONCURRENT_GDB "enable concurrent gdb tests - require 'set scheduler-locking on' support (OS dependent) " OFF)
 option(TESTS_LONG "enable long running tests" OFF)
 option(TESTS_TBB "enable tests which require TBB" OFF)
 option(TESTS_COMPATIBILITY "enable compatibility tests (requires internet connection)" OFF)
@@ -92,12 +65,14 @@ option(TEST_SEGMENT_VECTOR_ARRAY_EXPSIZE "enable testing of pmem::obj::segment_v
 option(TEST_SEGMENT_VECTOR_VECTOR_EXPSIZE "enable testing of pmem::obj::segment_vector with vector as segment_vector_type and exponential_size_policy" ON)
 option(TEST_SEGMENT_VECTOR_VECTOR_FIXEDSIZE "enable testing of pmem::obj::segment_vector with vector as segment_vector_type and fixed_size_policy" ON)
 option(TEST_ENUMERABLE_THREAD_SPECIFIC "enable testing of pmem::obj::experimental::enumerable_thread_specific" ON)
+option(TEST_CONCURRENT_MAP "enable testing of pmem::obj::experimental::concurrent_map (depends on TEST_STRING)" ON)
 
 option(INSTALL_ARRAY "enable installation of pmem::obj::array" ON)
 option(INSTALL_VECTOR "enable installation of pmem::obj::vector" ON)
 option(INSTALL_STRING "enable installation of pmem::obj::string (depends on INSTALL_VECTOR)" ON)
 option(INSTALL_CONCURRENT_HASHMAP "enable installation of pmem::obj::concurrent_hash_map (depends on INSTALL_STRING and INSTALL_SEGMENT_VECTOR)" ON)
 option(INSTALL_SEGMENT_VECTOR "enable installation of pmem::obj::segment_vector" ON)
+option(INSTALL_CONCURRENT_MAP "enable installation of pmem::obj::experimental::concurrent_map (depends on INSTALL_STRING)" ON)
 
 # Do not treat include directories from the interfaces
 # of consumed Imported Targets as SYSTEM by default.
@@ -167,7 +142,7 @@ if(BUILD_TESTS OR BUILD_EXAMPLES)
 		find_package(LIBPMEM REQUIRED ${LIBPMEM_REQUIRED_VERSION})
 	endif()
 
-	if (LIBPMEMOBJ_VERSION)
+	if (LIBPMEMOBJ_VERSION AND LIBPMEMOBJ_VERSION MATCHES "[0-9]+[.][0-9]+.*")
 		string(REGEX REPLACE "\\+git.*" "" LIBPMEMOBJ_VERSION_SHORT ${LIBPMEMOBJ_VERSION})
 		string(REGEX REPLACE "-rc.*" "" LIBPMEMOBJ_VERSION_SHORT ${LIBPMEMOBJ_VERSION_SHORT})
 		string(REPLACE "." ";" VERSION_LIST ${LIBPMEMOBJ_VERSION_SHORT})
@@ -191,8 +166,6 @@ if(BUILD_TESTS OR BUILD_EXAMPLES)
 	include(tbb)
 endif()
 
-add_executable(check_license EXCLUDE_FROM_ALL utils/check_license/check-license.c)
-
 add_custom_target(checkers ALL)
 add_custom_target(cppstyle)
 add_custom_target(cppformat)
@@ -200,9 +173,7 @@ add_custom_target(check-whitespace)
 add_custom_target(check-license
 	COMMAND ${CMAKE_SOURCE_DIR}/utils/check_license/check-headers.sh
 		${CMAKE_SOURCE_DIR}
-		${CMAKE_BINARY_DIR}/check_license
-		${CMAKE_SOURCE_DIR}/LICENSE)
-add_dependencies(check-license check_license)
+		BSD-3-Clause)
 
 add_custom_target(check-whitespace-main
 		COMMAND ${PERL_EXECUTABLE}
@@ -267,7 +238,8 @@ install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 	PATTERN "slice.hpp" EXCLUDE
 	PATTERN "concurrent_hash_map.hpp" EXCLUDE
 	PATTERN "segment_vector.hpp" EXCLUDE
-	PATTERN "enumerable_thread_specific.hpp" EXCLUDE)
+	PATTERN "enumerable_thread_specific.hpp" EXCLUDE
+	PATTERN "concurrent_map.hpp" EXCLUDE)
 
 if(INSTALL_ARRAY)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "array.hpp")
@@ -295,6 +267,12 @@ endif()
 if(INSTALL_SEGMENT_VECTOR)
 	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "segment_vector.hpp")
 endif()
+
+if(INSTALL_CONCURRENT_MAP)
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "concurrent_map.hpp")
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "enumerable_thread_specific.hpp")
+endif()
+
 
 install(DIRECTORY examples/ DESTINATION ${CMAKE_INSTALL_DOCDIR}/examples
 	FILES_MATCHING PATTERN "*.*pp")

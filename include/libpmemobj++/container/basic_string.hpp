@@ -1,34 +1,5 @@
-/*
- * Copyright 2019-2020, Intel Corporation
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in
- *       the documentation and/or other materials provided with the
- *       distribution.
- *
- *     * Neither the name of the copyright holder nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-3-Clause
+/* Copyright 2019-2020, Intel Corporation */
 
 /**
  * @file
@@ -178,6 +149,7 @@ public:
 	void reserve(size_type new_cap = 0);
 	void shrink_to_fit();
 	void clear();
+	void free_data();
 
 	/* Modifiers */
 	basic_string &erase(size_type index = 0, size_type count = npos);
@@ -314,6 +286,8 @@ public:
 	size_type find_last_not_of(CharT ch, size_type pos = npos) const
 		noexcept;
 
+	void swap(basic_string &other);
+
 	/* Special value. The exact meaning depends on the context. */
 	static const size_type npos = static_cast<size_type>(-1);
 
@@ -383,14 +357,13 @@ private:
 			pmem::detail::is_input_iterator<InputIt>::value>::type>
 	pointer assign_sso_data(InputIt first, InputIt last);
 	pointer assign_sso_data(size_type count, value_type ch);
-	pointer assign_sso_data(basic_string &&other);
+	pointer move_data(basic_string &&other);
 	template <
 		typename InputIt,
 		typename Enable = typename std::enable_if<
 			pmem::detail::is_input_iterator<InputIt>::value>::type>
 	pointer assign_large_data(InputIt first, InputIt last);
 	pointer assign_large_data(size_type count, value_type ch);
-	pointer assign_large_data(basic_string &&other);
 	pool_base get_pool() const;
 	void check_pmem() const;
 	void check_tx_stage_work() const;
@@ -672,11 +645,7 @@ basic_string<CharT, Traits>::basic_string(basic_string &&other)
 	check_pmem_tx();
 	sso._size = 0;
 
-	allocate(other.size());
-	initialize(std::move(other));
-
-	if (other.is_sso_used())
-		other.initialize(0U, value_type('\0'));
+	move_data(std::move(other));
 }
 
 /**
@@ -705,14 +674,15 @@ basic_string<CharT, Traits>::basic_string(std::initializer_list<CharT> ilist)
 
 /**
  * Destructor.
- *
- * XXX: implement free_data()
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits>::~basic_string()
 {
-	if (!is_sso_used())
-		detail::destroy<non_sso_type>(non_sso_data());
+	try {
+		free_data();
+	} catch (...) {
+		std::terminate();
+	}
 }
 
 /**
@@ -1018,10 +988,8 @@ basic_string<CharT, Traits>::assign(basic_string &&other)
 	auto pop = get_pool();
 
 	transaction::run(pop, [&] {
-		replace_content(std::move(other));
-
-		if (other.is_sso_used())
-			other.initialize(0U, value_type('\0'));
+		destroy_data();
+		move_data(std::move(other));
 	});
 
 	return *this;
@@ -1464,15 +1432,18 @@ basic_string<CharT, Traits>::erase(size_type index, size_type count)
 			auto move_len = sz - index - count;
 			auto new_size = sz - count;
 
-			auto range = sso_data().range(index, move_len + 1);
+			if (move_len > 0) {
+				auto range =
+					sso_data().range(index, move_len + 1);
+				traits_type::move(range.begin(), &*last,
+						  move_len);
 
-			traits_type::move(range.begin(), &*last, move_len);
+				assert(range.end() - 1 ==
+				       &sso_data()._data[index + move_len]);
+			}
 
+			sso_data()[index + move_len] = value_type('\0');
 			set_sso_size(new_size);
-
-			assert(range.end() - 1 ==
-			       &sso_data()._data[index + move_len]);
-			*(range.end() - 1) = value_type('\0');
 		});
 	} else {
 		non_sso_data().erase(first, last);
@@ -1569,7 +1540,7 @@ basic_string<CharT, Traits>::pop_back()
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1628,7 +1599,7 @@ basic_string<CharT, Traits>::append(size_type count, CharT ch)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1660,7 +1631,7 @@ basic_string<CharT, Traits>::append(const basic_string &str)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1696,7 +1667,7 @@ basic_string<CharT, Traits>::append(const basic_string &str, size_type pos,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1722,7 +1693,7 @@ basic_string<CharT, Traits>::append(const CharT *s, size_type count)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1750,7 +1721,7 @@ basic_string<CharT, Traits>::append(const CharT *s)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 template <typename InputIt, typename Enable>
@@ -1819,7 +1790,7 @@ basic_string<CharT, Traits>::append(InputIt first, InputIt last)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1842,7 +1813,7 @@ basic_string<CharT, Traits>::append(std::initializer_list<CharT> ilist)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 void
@@ -1867,7 +1838,7 @@ basic_string<CharT, Traits>::push_back(CharT ch)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1893,7 +1864,7 @@ basic_string<CharT, Traits>::operator+=(const basic_string &str)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1916,7 +1887,7 @@ basic_string<CharT, Traits>::operator+=(const CharT *s)
  * @throw std::length_error if new_size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1943,7 +1914,7 @@ basic_string<CharT, Traits>::operator+=(CharT ch)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -1971,7 +1942,7 @@ basic_string<CharT, Traits>::operator+=(std::initializer_list<CharT> ilist)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2006,7 +1977,7 @@ basic_string<CharT, Traits>::insert(size_type index, size_type count, CharT ch)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2034,7 +2005,7 @@ basic_string<CharT, Traits>::insert(size_type index, const CharT *s)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2069,7 +2040,7 @@ basic_string<CharT, Traits>::insert(size_type index, const CharT *s,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2098,7 +2069,7 @@ basic_string<CharT, Traits>::insert(size_type index, const basic_string &str)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2135,7 +2106,7 @@ basic_string<CharT, Traits>::insert(size_type index1, const basic_string &str,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::iterator
@@ -2166,7 +2137,7 @@ basic_string<CharT, Traits>::insert(const_iterator pos, CharT ch)
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::iterator
@@ -2234,7 +2205,7 @@ basic_string<CharT, Traits>::insert(const_iterator pos, size_type count,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 template <typename InputIt, typename Enable>
@@ -2320,7 +2291,7 @@ basic_string<CharT, Traits>::insert(const_iterator pos, InputIt first,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::iterator
@@ -2350,7 +2321,7 @@ basic_string<CharT, Traits>::insert(const_iterator pos,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2378,7 +2349,7 @@ basic_string<CharT, Traits>::replace(size_type index, size_type count,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2412,7 +2383,7 @@ basic_string<CharT, Traits>::replace(const_iterator first, const_iterator last,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2453,7 +2424,7 @@ basic_string<CharT, Traits>::replace(size_type index, size_type count,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 template <typename InputIt, typename Enable>
@@ -2536,7 +2507,7 @@ basic_string<CharT, Traits>::replace(const_iterator first, const_iterator last,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2567,7 +2538,7 @@ basic_string<CharT, Traits>::replace(const_iterator first, const_iterator last,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2604,7 +2575,7 @@ basic_string<CharT, Traits>::replace(size_type index, size_type count,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2635,7 +2606,7 @@ basic_string<CharT, Traits>::replace(size_type index, size_type count,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2671,7 +2642,7 @@ basic_string<CharT, Traits>::replace(size_type index, size_type count,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2742,7 +2713,7 @@ basic_string<CharT, Traits>::replace(const_iterator first, const_iterator last,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -2772,7 +2743,7 @@ basic_string<CharT, Traits>::replace(const_iterator first, const_iterator last,
  * @throw std::length_error if new size > max_size().
  * @throw pmem::transaction_alloc_error when allocating new memory failed.
  * @throw pmem::transaction_free_error when freeing old underlying array failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  */
 template <typename CharT, typename Traits>
 basic_string<CharT, Traits> &
@@ -3612,7 +3583,7 @@ basic_string<CharT, Traits>::capacity() const noexcept
  * @post size() == count
  *
  * @throw std::length_error if count > max_size()
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_error when snapshotting failed.
  * @throw pmem::transaction_free_error when freeing old underlying array
@@ -3654,7 +3625,7 @@ basic_string<CharT, Traits>::resize(size_type count, CharT ch)
  * @post size() == count
  *
  * @throw std::length_error if count > max_size()
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  * @throw pmem::transaction_error when snapshotting failed.
  * @throw pmem::transaction_free_error when freeing old underlying array
@@ -3716,7 +3687,7 @@ basic_string<CharT, Traits>::reserve(size_type new_cap)
  * @throw pmem::transaction_alloc_error when reallocating failed.
  * @throw pmem::transaction_free_error when freeing old underlying array
  * failed.
- * @throw rethrows constructor exception.
+ * @throw rethrows constructor's exception.
  * @throw rethrows destructor exception.
  */
 template <typename CharT, typename Traits>
@@ -3749,6 +3720,37 @@ void
 basic_string<CharT, Traits>::clear()
 {
 	erase(begin(), end());
+}
+
+/**
+ * Clears the content of a string and frees all allocated persistent memory for
+ * data transactionally.
+ *
+ * @post size() == 0
+ * @post capacity() == 0
+ * @post data() == nullptr
+ *
+ * @throw pmem::transaction_error when snapshotting failed.
+ * @throw pmem::transaction_free_error when freeing of underlying structure
+ * failed.
+ */
+template <typename CharT, typename Traits>
+void
+basic_string<CharT, Traits>::free_data()
+{
+	auto pop = get_pool();
+
+	transaction::run(pop, [&] {
+		if (is_sso_used()) {
+			add_sso_to_tx(0, get_sso_size() + 1);
+			clear();
+			/* sso.data destructor does not have to be called */
+		} else {
+			non_sso_data().free_data();
+			detail::destroy<non_sso_type>(non_sso_data());
+			enable_sso();
+		}
+	});
 }
 
 /**
@@ -3828,7 +3830,6 @@ basic_string<CharT, Traits>::get_size(const basic_string &other) const
  * parameters. Allowed parameters are:
  * - size_type count, CharT value
  * - InputIt first, InputIt last
- * - basic_string &&
  */
 template <typename CharT, typename Traits>
 template <typename... Args>
@@ -3855,7 +3856,6 @@ basic_string<CharT, Traits>::replace_content(Args &&... args)
  * non_sso.data or sso.data. Allowed parameters are:
  * - size_type count, CharT value
  * - InputIt first, InputIt last
- * - basic_string &&
  *
  * @pre must be called in transaction scope.
  * @pre memory must be allocated before initialization.
@@ -3867,13 +3867,8 @@ basic_string<CharT, Traits>::initialize(Args &&... args)
 {
 	assert(pmemobj_tx_stage() == TX_STAGE_WORK);
 
-	auto size = get_size(std::forward<Args>(args)...);
-
 	if (is_sso_used()) {
-		auto ptr = assign_sso_data(std::forward<Args>(args)...);
-		set_sso_size(size);
-
-		return ptr;
+		return assign_sso_data(std::forward<Args>(args)...);
 	} else {
 		return assign_large_data(std::forward<Args>(args)...);
 	}
@@ -3930,6 +3925,8 @@ basic_string<CharT, Traits>::assign_sso_data(InputIt first, InputIt last)
 
 	sso_data()._data[size] = value_type('\0');
 
+	set_sso_size(size);
+
 	return &sso_data()[0];
 }
 
@@ -3948,19 +3945,9 @@ basic_string<CharT, Traits>::assign_sso_data(size_type count, value_type ch)
 
 	sso_data()._data[count] = value_type('\0');
 
+	set_sso_size(count);
+
 	return &sso_data()[0];
-}
-
-/**
- * Initialize sso data. Overload for rvalue reference of basic_string.
- */
-template <typename CharT, typename Traits>
-typename basic_string<CharT, Traits>::pointer
-basic_string<CharT, Traits>::assign_sso_data(basic_string &&other)
-{
-	assert(pmemobj_tx_stage() == TX_STAGE_WORK);
-
-	return assign_sso_data(other.cbegin(), other.cend());
 }
 
 /**
@@ -4001,21 +3988,68 @@ basic_string<CharT, Traits>::assign_large_data(size_type count, value_type ch)
 }
 
 /**
- * Initialize non_sso.data - call constructor of non_sso.data.
- * Overload for rvalue reference of basic_string.
+ * Move initialize for basic_string. Expects data is not
+ * initialized.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::pointer
-basic_string<CharT, Traits>::assign_large_data(basic_string &&other)
+basic_string<CharT, Traits>::move_data(basic_string &&other)
 {
 	assert(pmemobj_tx_stage() == TX_STAGE_WORK);
 
+	typename basic_string::pointer ptr;
+
+	if (other.size() <= sso_capacity) {
+		enable_sso();
+		ptr = assign_sso_data(other.cbegin(), other.cend());
+	} else {
+		disable_sso();
+		detail::conditional_add_to_tx(&non_sso_data(), 1,
+					      POBJ_XADD_NO_SNAPSHOT);
+		detail::create<non_sso_type>(&non_sso_data());
+
+		assert(!other.is_sso_used());
+		non_sso_data() = std::move(other.non_sso_data());
+
+		ptr = non_sso_data().data();
+	}
+
 	if (other.is_sso_used())
-		return assign_large_data(other.cbegin(), other.cend());
+		other.initialize(0U, value_type('\0'));
 
-	non_sso_data() = std::move(other.non_sso_data());
+	return ptr;
+}
 
-	return non_sso_data().data();
+/**
+ * Swap the content of persistent strings.
+ */
+template <typename CharT, typename Traits>
+void
+basic_string<CharT, Traits>::swap(basic_string &other)
+{
+	pool_base pb = get_pool();
+	transaction::run(pb, [&] {
+		if (is_sso_used() && other.is_sso_used()) {
+			sso_data().swap(other.sso_data());
+			pmem::obj::swap(sso._size, other.sso._size);
+		} else if (!is_sso_used() && !other.is_sso_used()) {
+			non_sso_data().swap(other.non_sso_data());
+		} else {
+			basic_string *_short, *_long;
+			if (size() > other.size()) {
+				_short = &other;
+				_long = this;
+			} else {
+				_short = this;
+				_long = &other;
+			}
+
+			std::basic_string<CharT, Traits> tmp(_short->c_str(),
+							     _short->size());
+			*_short = *_long;
+			*_long = tmp;
+		}
+	});
 }
 
 /**
@@ -4602,6 +4636,16 @@ operator>=(const basic_string<CharT, Traits> &lhs,
 	   const std::basic_string<CharT, Traits> &rhs)
 {
 	return lhs.compare(rhs) >= 0;
+}
+
+/**
+ * Swap the content of persistent strings.
+ */
+template <class CharT, class Traits>
+void
+swap(basic_string<CharT, Traits> &lhs, basic_string<CharT, Traits> &rhs)
+{
+	return lhs.swap(rhs);
 }
 
 } /* namespace obj */
