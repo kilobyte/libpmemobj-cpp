@@ -1,3 +1,9 @@
+libpmemobj-cpp (1.10-2) unstable; urgency=medium
+
+  * Disable ppc64el.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Tue, 02 Jun 2020 19:42:15 +0200
+
 libpmemobj-cpp (1.10-1) unstable; urgency=medium
 
   * New upstream release.
