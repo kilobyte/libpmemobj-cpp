@@ -1,3 +1,9 @@
+libpmemobj-cpp (1.10-3) unstable; urgency=medium
+
+  * Paper over libunwind calling close(-1).  Closes: #967098.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Mon, 31 Aug 2020 08:51:51 +0200
+
 libpmemobj-cpp (1.10-2) unstable; urgency=medium
 
   * Disable ppc64el.
