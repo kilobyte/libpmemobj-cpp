@@ -21,3 +21,11 @@
    obj:*libunwind*
    ...
 }
+{
+   invalid file descriptor -1 in syscall close()
+   Memcheck:Param
+   write(buf)
+   ...
+   obj:*libunwind*
+   ...
+}
