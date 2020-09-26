@@ -1,3 +1,9 @@
+libpmemobj-cpp (1.11~rc1-1) experimental; urgency=medium
+
+  * New upstream pre-release.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Sun, 27 Sep 2020 00:16:26 +0200
+
 libpmemobj-cpp (1.10-3) unstable; urgency=medium
 
   * Paper over libunwind calling close(-1).  Closes: #967098.
