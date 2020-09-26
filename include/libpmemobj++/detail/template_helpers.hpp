@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/* Copyright 2019, Intel Corporation */
+/* Copyright 2019-2020, Intel Corporation */
 
 /**
  * @file
@@ -10,6 +10,9 @@
 #define LIBPMEMOBJ_CPP_TEMPLATE_HELPERS_HPP
 
 #include <type_traits>
+
+#include <libpmemobj++/container/basic_string.hpp>
+#include <libpmemobj++/experimental/inline_string.hpp>
 
 namespace pmem
 {
@@ -37,6 +40,27 @@ struct supports_impl<T, void_t<Checks<T>...>, Checks...> {
 
 template <typename T, template <typename> class... Checks>
 using supports = typename supports_impl<T, void, Checks...>::type;
+
+template <typename Compare>
+using is_transparent = typename Compare::is_transparent;
+
+template <typename Compare>
+using has_is_transparent = detail::supports<Compare, is_transparent>;
+
+/* Check if type is pmem::obj::basic_string or
+ * pmem::obj::basic_inline_string */
+template <typename>
+struct is_string : std::false_type {
+};
+
+template <typename CharT, typename Traits>
+struct is_string<obj::basic_string<CharT, Traits>> : std::true_type {
+};
+
+template <typename CharT, typename Traits>
+struct is_string<obj::experimental::basic_inline_string<CharT, Traits>>
+    : std::true_type {
+};
 
 } /* namespace detail */
 

@@ -1615,7 +1615,7 @@ operator!=(const hash_map_iterator<Container, M> &i,
  * while already holding an accessor to some element.
  *
  * The typical usage example would be:
- * @snippet doc_snippets/concurrent_hash_map.cpp concurrent_hash_map_example
+ * @snippet concurrent_hash_map/concurrent_hash_map.cpp concurrent_hash_map_ex
  */
 template <typename Key, typename T, typename Hash, typename KeyEqual,
 	  typename MutexType, typename ScopedLockType>
@@ -1736,6 +1736,11 @@ protected:
 		{
 			acquire(base, h, writer);
 		}
+
+		bucket_accessor(const bucket_accessor &other) = delete;
+
+		bucket_accessor &
+		operator=(const bucket_accessor &other) = delete;
 
 		/**
 		 * Find a bucket by masked hashcode, optionally rehash, and
@@ -2831,8 +2836,14 @@ public:
 		}
 
 		size_t max_index = mask().load(std::memory_order_acquire);
-		size_t start_index = (start_percent * max_index) / 100;
-		size_t end_index = (end_percent * max_index) / 100;
+		size_t start_index =
+			static_cast<size_t>((start_percent * max_index) / 100);
+		size_t end_index =
+			static_cast<size_t>((end_percent * max_index) / 100);
+
+		/* Make sure we do not use too big index, even in case of
+		 * rounding errors. */
+		end_index = (std::min)(end_index, max_index);
 
 #if LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
 		ANNOTATE_HAPPENS_AFTER(&(this->my_mask));

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/* Copyright 2015-2018, Intel Corporation */
+/* Copyright 2015-2020, Intel Corporation */
 
 /**
  * @file
@@ -29,7 +29,7 @@ namespace obj
  * creating a snapshot of the variable when modified in the transaction scope.
  * The p class is not designed to be used with compound types. For that see the
  * persistent_ptr.
- * @snippet doc_snippets/persistent.cpp p_property_example
+ * @snippet persistent/persistent.cpp p_property_example
  */
 template <typename T>
 class p {

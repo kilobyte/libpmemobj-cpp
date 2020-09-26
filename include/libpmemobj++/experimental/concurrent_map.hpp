@@ -66,9 +66,6 @@ public:
 	using const_pointer = typename base_type::const_pointer;
 	using iterator = typename base_type::iterator;
 	using const_iterator = typename base_type::const_iterator;
-	using reverse_iterator = typename base_type::reverse_iterator;
-	using const_reverse_iterator =
-		typename base_type::const_reverse_iterator;
 
 	/**
 	 * Default constructor.
@@ -86,6 +83,15 @@ public:
 	 * Move constructor.
 	 */
 	concurrent_map(concurrent_map &&table) : base_type(std::move(table))
+	{
+	}
+
+	/**
+	 * Construct the empty map
+	 */
+	explicit concurrent_map(const key_compare &comp,
+				const allocator_type &alloc = allocator_type())
+	    : base_type(comp, alloc)
 	{
 	}
 
@@ -138,6 +144,15 @@ public:
 			base_type::operator=(ilist));
 	}
 };
+
+/** Non-member swap */
+template <typename Key, typename Value, typename Comp, typename Allocator>
+void
+swap(concurrent_map<Key, Value, Comp, Allocator> &lhs,
+     concurrent_map<Key, Value, Comp, Allocator> &rhs)
+{
+	lhs.swap(rhs);
+}
 
 } /* namespace experimental */
 } /* namespace obj */

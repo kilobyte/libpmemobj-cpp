@@ -22,7 +22,13 @@
    ...
 }
 {
-   invalid file descriptor -1 in syscall close()
+   libunwind calls glibc's setcontext on some architectures, e.g. ppc
+   Memcheck:Addr8
+   fun:setcontext*
+   ...
+}
+{
+   libunwind exception suppresion
    Memcheck:Param
    write(buf)
    ...

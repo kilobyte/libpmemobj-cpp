@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/* Copyright 2016-2019, Intel Corporation */
+/* Copyright 2016-2020, Intel Corporation */
 
 /**
  * @file
@@ -21,6 +21,19 @@
 
 namespace pmem
 {
+
+namespace detail
+{
+/**
+ * A structure that checks if it is possible to snapshot the specified memory.
+ * Can have specialization.
+ */
+template <typename T>
+struct can_do_snapshot {
+	static constexpr bool value = LIBPMEMOBJ_CPP_IS_TRIVIALLY_COPYABLE(T);
+};
+
+} /* namespace detail */
 
 namespace obj
 {
@@ -46,7 +59,7 @@ namespace obj
  * transaction.
  *
  * The typical usage example would be:
- * @snippet doc_snippets/transaction.cpp general_tx_example
+ * @snippet transaction/transaction.cpp general_tx_example
  */
 class transaction {
 public:
@@ -66,7 +79,7 @@ public:
 	 * acquired once again.
 	 *
 	 *The typical usage example would be:
-	 * @snippet doc_snippets/transaction.cpp manual_tx_example
+	 * @snippet transaction/transaction.cpp manual_tx_example
 	 */
 	class manual {
 	public:
@@ -173,7 +186,7 @@ public:
 	 * acquired once again.
 	 *
 	 * The typical usage example would be:
-	 * @snippet doc_snippets/transaction.cpp automatic_tx_example
+	 * @snippet transaction/transaction.cpp automatic_tx_example
 	 */
 	class automatic {
 	public:
@@ -465,8 +478,8 @@ public:
 	 * supplied block of memory has to be within the pool registered in the
 	 * transaction. This function must be called during transaction. This
 	 * overload only participates in overload resolution of function
-	 * template if T satisfies requirements of
-	 * LIBPMEMOBJ_CPP_IS_TRIVIALLY_COPYABLE macro.
+	 * template if T is either a trivially copyable type or some PMDK
+	 * provided type.
 	 *
 	 * @param[in] addr pointer to the first object to be snapshotted.
 	 * @param[in] num number of elements to be snapshotted.
@@ -476,10 +489,9 @@ public:
 	 * @throw transaction_error when snapshotting failed or if function
 	 * wasn't called during transaction.
 	 */
-	template <
-		typename T,
-		typename std::enable_if<LIBPMEMOBJ_CPP_IS_TRIVIALLY_COPYABLE(T),
-					T>::type * = nullptr>
+	template <typename T,
+		  typename std::enable_if<detail::can_do_snapshot<T>::value,
+					  T>::type * = nullptr>
 	static void
 	snapshot(const T *addr, size_t num = 1)
 	{
@@ -522,7 +534,7 @@ public:
 	 * scope
 	 *
 	 * The typical usage example would be:
-	 * @snippet doc_snippets/transaction.cpp tx_callback_example
+	 * @snippet transaction/transaction.cpp tx_callback_example
 	 */
 	static void
 	register_callback(stage stg, std::function<void()> cb)

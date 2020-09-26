@@ -20,6 +20,7 @@
 #include <libpmemobj++/persistent_ptr.hpp>
 #include <libpmemobj++/pext.hpp>
 #include <libpmemobj++/transaction.hpp>
+#include <libpmemobj++/utils.hpp>
 
 #include <vector>
 
@@ -28,14 +29,18 @@ namespace pmem
 namespace obj
 {
 
+/*! \namespace pmem::obj::segment_vector_internal
+ * \brief Internal implementation of pmem's segment vector.
+ */
 namespace segment_vector_internal
 {
 /**
- * Iterator for segment_vector
+ * Iterator for segment_vector.
+ *
  * Since a constant iterator differs only in the type of references and
  * pointers returned by methods, is_const template parameter is
  * responsible for the differences between constant and non-constant
- * iterators
+ * iterators.
  */
 template <typename Container, bool is_const>
 class segment_iterator {
@@ -365,7 +370,7 @@ segment_iterator<Container, is_const>::operator>(
 	const segment_iterator<Container, C> &rhs) const
 {
 	if (table != rhs.table)
-		throw std::invalid_argument("segment_iterator::operator<");
+		throw std::invalid_argument("segment_iterator::operator>");
 
 	return index > rhs.index;
 }
@@ -388,7 +393,7 @@ segment_iterator<Container, is_const>::operator<=(
 	const segment_iterator<Container, C> &rhs) const
 {
 	if (table != rhs.table)
-		throw std::invalid_argument("segment_iterator::operator<");
+		throw std::invalid_argument("segment_iterator::operator<=");
 
 	return index <= rhs.index;
 }
@@ -411,7 +416,7 @@ segment_iterator<Container, is_const>::operator>=(
 	const segment_iterator<Container, C> &rhs) const
 {
 	if (table != rhs.table)
-		throw std::invalid_argument("segment_iterator::operator<");
+		throw std::invalid_argument("segment_iterator::operator>=");
 
 	return index >= rhs.index;
 }
@@ -479,9 +484,11 @@ using exponential_size_vector_policy =
 							 SegmentType>;
 
 /**
- * Segment table is a data type with a vector-like interface
- * The difference is that it does not do reallocations and iterators are
- * not invalidated when adding new elements
+ * A persistent version of segment vector implementation.
+ *
+ * Segment table is a data type with a vector-like interface. Differences
+ * are: it does not do reallocations and iterators are not invalidated
+ * when adding new elements.
  *
  * @pre if SegmentType for policy is specified it must contain such functions
  * as: default constructor, destructor, assign, operator[], free_data,
@@ -491,7 +498,7 @@ using exponential_size_vector_policy =
  * Policy template represents Segments storing type and managing methods.
  *
  * Example usage:
- * @snippet doc_snippets/segment_vector.cpp segment_vector_example
+ * @snippet segment_vector/segment_vector.cpp segment_vector_example
  */
 template <typename T, typename Policy = exponential_size_vector_policy<>>
 class segment_vector {
@@ -633,7 +640,7 @@ private:
 	void construct_range(size_type idx, InputIt first, InputIt last);
 	void insert_gap(size_type idx, size_type count);
 	void shrink(size_type size_new);
-	pool_base get_pool() const noexcept;
+	pool_base get_pool() const;
 	void snapshot_data(size_type idx_first, size_type idx_last);
 
 	/* Data structure specific helper functions */
@@ -2635,11 +2642,9 @@ segment_vector<T, Policy>::shrink(size_type size_new)
  */
 template <typename T, typename Policy>
 pool_base
-segment_vector<T, Policy>::get_pool() const noexcept
+segment_vector<T, Policy>::get_pool() const
 {
-	auto pop = pmemobj_pool_by_ptr(this);
-	assert(pop != nullptr);
-	return pool_base(pop);
+	return pmem::obj::pool_by_vptr(this);
 }
 
 /**

@@ -3,12 +3,26 @@
 
 include(ctest_helpers.cmake)
 
-add_cppstyle(tests-common ${CMAKE_CURRENT_SOURCE_DIR}/common/*.*pp ${CMAKE_CURRENT_SOURCE_DIR}/*.c ${CMAKE_CURRENT_SOURCE_DIR}/*.h ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp ${CMAKE_CURRENT_SOURCE_DIR}/check_is_pmem/*.*pp)
-add_check_whitespace(tests-common ${CMAKE_CURRENT_SOURCE_DIR}/common/*.*pp ${CMAKE_CURRENT_SOURCE_DIR}/*.c ${CMAKE_CURRENT_SOURCE_DIR}/*.h ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp ${CMAKE_CURRENT_SOURCE_DIR}/check_is_pmem/*.*pp)
+add_cppstyle(tests-common ${CMAKE_CURRENT_SOURCE_DIR}/common/*.*pp
+						  ${CMAKE_CURRENT_SOURCE_DIR}/*.c
+						  ${CMAKE_CURRENT_SOURCE_DIR}/*.h
+						  ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
+						  ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
+						  ${CMAKE_CURRENT_SOURCE_DIR}/check_is_pmem/*.*pp
+						  ${CMAKE_CURRENT_SOURCE_DIR}/container_generic/*.*pp)
+
+add_check_whitespace(tests-common ${CMAKE_CURRENT_SOURCE_DIR}/common/*.*pp
+								  ${CMAKE_CURRENT_SOURCE_DIR}/*.c
+								  ${CMAKE_CURRENT_SOURCE_DIR}/*.h
+								  ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
+								  ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
+								  ${CMAKE_CURRENT_SOURCE_DIR}/check_is_pmem/*.*pp
+								  ${CMAKE_CURRENT_SOURCE_DIR}/container_generic/*.*pp)
+
 add_check_whitespace(tests-cmake ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt)
 
 if(MSVC_VERSION)
-	add_flag(-W3)
+	add_flag(-W2)
 
 	# disable warning C4996 - disable checking iterators
 	add_flag(-D_SCL_SECURE_NO_WARNINGS)
@@ -18,8 +32,11 @@ if(MSVC_VERSION)
 
 	# fix C1128 raised for some test binaries
 	add_flag(-bigobj)
+
+	add_flag("-D_FORTIFY_SOURCE=2" RELEASE)
 else()
 	add_flag(-Wall)
+	add_flag("-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2" RELEASE)
 endif()
 
 add_flag(-Wpointer-arith)
@@ -33,7 +50,7 @@ add_flag(-fno-common)
 add_flag(-ggdb DEBUG)
 add_flag(-DDEBUG DEBUG)
 
-add_flag("-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2" RELEASE)
+
 
 if(USE_ASAN)
        add_sanitizer_flag(address)
@@ -216,10 +233,30 @@ add_test_generic(NAME ctl CASE 0 TRACERS none
 build_test(defrag defrag/defrag.cpp)
 add_test_generic(NAME defrag TRACERS none pmemcheck memcheck)
 
+build_test(string_view string_view/string_view.cpp)
+add_test_generic(NAME string_view TRACERS none memcheck)
+
+build_test(inline_string inline_string/inline_string.cpp)
+add_test_generic(NAME inline_string TRACERS none memcheck pmemcheck)
+
 if(WIN32)
 	build_test(ctl_win ctl_win/ctl_win.cpp)
 	add_test_generic(NAME ctl_win CASE 0 TRACERS none
 			SCRIPT ctl/ctl_0.cmake)
+endif()
+
+if (TEST_SELF_RELATIVE_POINTER)
+	build_test(self_relative_ptr ptr/self_relative_ptr.cpp)
+	add_test_generic(NAME self_relative_ptr TRACERS none memcheck pmemcheck)
+
+	build_test(self_relative_ptr_arith ptr_arith/self_relative_ptr_arith.cpp)
+	add_test_generic(NAME self_relative_ptr_arith TRACERS none memcheck pmemcheck)
+
+	build_test_atomic(self_relative_ptr_atomic self_relative_ptr_atomic/self_relative_ptr_atomic.cpp)
+	add_test_generic(NAME self_relative_ptr_atomic TRACERS none memcheck drd helgrind)
+
+	build_test_atomic(self_relative_ptr_atomic_pmem self_relative_ptr_atomic/self_relative_ptr_atomic_pmem.cpp)
+	add_test_generic(NAME self_relative_ptr_atomic_pmem TRACERS none memcheck pmemcheck drd helgrind)
 endif()
 
 if (TEST_ARRAY)
@@ -812,6 +849,22 @@ if(TEST_CONCURRENT_MAP)
 	build_test(concurrent_map_tx concurrent_map_tx/concurrent_map_tx.cpp)
 	add_test_generic(NAME concurrent_map_tx TRACERS none memcheck pmemcheck)
 
+	# XXX: Fix concurrent_map exceptions
+	# build_test_ext(NAME concurrent_map_ctor_exceptions_nopmem SRC_FILES map/map_ctor_exception_nopmem.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_CONCURRENT_MAP)
+	# add_test_generic(NAME concurrent_map_ctor_exceptions_nopmem TRACERS none memcheck pmemcheck)
+
+	build_test_ext(NAME concurrent_map_ctor_exceptions_notx SRC_FILES map/map_ctor_exception_notx.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_CONCURRENT_MAP)
+	add_test_generic(NAME concurrent_map_ctor_exceptions_notx TRACERS none memcheck)
+
+	build_test_ext(NAME concurrent_map_txabort SRC_FILES map/map_txabort.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_CONCURRENT_MAP)
+	add_test_generic(NAME concurrent_map_txabort TRACERS none memcheck pmemcheck)
+
+	build_test_ext(NAME concurrent_map_ctor_and_assignment SRC_FILES map/map_ctor_and_assignment.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_CONCURRENT_MAP)
+	add_test_generic(NAME concurrent_map_ctor_and_assignment TRACERS none memcheck pmemcheck)
+
+	build_test_ext(NAME concurrent_map_find_lower_lower_eq SRC_FILES map/map_find_lower_lower_eq.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_CONCURRENT_MAP)
+	add_test_generic(NAME concurrent_map_find_lower_lower_eq TRACERS none memcheck pmemcheck)
+
 	if(TESTS_CONCURRENT_GDB AND GDB_FOUND)
 		if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 			build_test(concurrent_map_mt_gdb concurrent_map_mt_gdb/concurrent_map_mt_gdb.cpp)
@@ -858,6 +911,31 @@ if(TEST_CONCURRENT_MAP)
 		endif()
 	else()
 		message(WARNING "Skipping pmreorder tests because of no pmreorder support")
+	endif()
+endif()
+
+if (TEST_RADIX_TREE)
+	build_test(radix_tx_abort radix/radix_tx_abort.cpp)
+	add_test_generic(NAME radix_tx_abort TRACERS none memcheck pmemcheck)
+
+	build_test(radix_basic radix/radix_basic.cpp)
+	add_test_generic(NAME radix_basic TRACERS none memcheck pmemcheck)
+
+	build_test_ext(NAME radix_ctor_exceptions_nopmem SRC_FILES map/map_ctor_exception_nopmem.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_RADIX)
+	add_test_generic(NAME radix_ctor_exceptions_nopmem TRACERS none memcheck pmemcheck)
+
+	build_test_ext(NAME radix_ctor_exceptions_notx SRC_FILES map/map_ctor_exception_notx.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_RADIX)
+	add_test_generic(NAME radix_ctor_exceptions_notx TRACERS none memcheck)
+
+	build_test_ext(NAME radix_txabort SRC_FILES map/map_txabort.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_RADIX)
+	add_test_generic(NAME radix_txabort TRACERS none memcheck pmemcheck)
+
+	build_test_ext(NAME radix_ctor_and_assignment SRC_FILES map/map_ctor_and_assignment.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_RADIX)
+	add_test_generic(NAME radix_ctor_and_assignment TRACERS none memcheck pmemcheck)
+
+	if (TESTS_LONG)
+		build_test(radix_large radix/radix_large.cpp)
+		add_test_generic(NAME radix_large TRACERS none)
 	endif()
 endif()
 

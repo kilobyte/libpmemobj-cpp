@@ -93,7 +93,6 @@
  * It is a common namespace for all persistent memory C++ libraries
  * For more information about pmem goto: https://pmem.io
  */
-
 namespace pmem
 {
 /*! \namespace pmem::obj
@@ -243,6 +242,42 @@ Log2(uint64_t x)
 
 	return table[(x * 0x03f6eaf2cd271461) >> 58];
 }
+#endif
+
+#ifndef _MSC_VER
+
+/** Returns index of most significant set bit */
+static inline uint8_t
+mssb_index64(unsigned long long value)
+{
+	return ((uint8_t)(63 - __builtin_clzll(value)));
+}
+
+/** Returns index of most significant set bit */
+static inline uint8_t
+mssb_index(unsigned int value)
+{
+	return ((uint8_t)(31 - __builtin_clz(value)));
+}
+
+#else
+
+static __inline uint8_t
+mssb_index(unsigned long value)
+{
+	unsigned long ret;
+	_BitScanReverse(&ret, value);
+	return (uint8_t)ret;
+}
+
+static __inline uint8_t
+mssb_index64(uint64_t value)
+{
+	unsigned long ret;
+	_BitScanReverse64(&ret, value);
+	return (uint8_t)ret;
+}
+
 #endif
 
 } /* namespace detail */

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/* Copyright 2016-2018, Intel Corporation */
+/* Copyright 2016-2020, Intel Corporation */
 
 /**
  * @file
@@ -312,7 +312,9 @@ operator>>=(p<T> &lhs, const Y &rhs)
 
 namespace std
 {
-
+/**
+ * Specialization of std::numeric_limits for p<T>
+ */
 template <typename T>
 struct numeric_limits<pmem::obj::p<T>> : public numeric_limits<T> {
 

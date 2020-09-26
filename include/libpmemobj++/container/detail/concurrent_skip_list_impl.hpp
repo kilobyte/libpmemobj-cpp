@@ -17,12 +17,14 @@
 #include <libpmemobj++/detail/enumerable_thread_specific.hpp>
 #include <libpmemobj++/detail/life.hpp>
 #include <libpmemobj++/detail/pair.hpp>
-#include <libpmemobj++/detail/persistent_pool_ptr.hpp>
 #include <libpmemobj++/detail/template_helpers.hpp>
 #include <libpmemobj++/mutex.hpp>
 #include <libpmemobj++/persistent_ptr.hpp>
 #include <libpmemobj++/pool.hpp>
 #include <libpmemobj++/transaction.hpp>
+
+#include <libpmemobj++/experimental/atomic_self_relative_ptr.hpp>
+#include <libpmemobj++/experimental/self_relative_ptr.hpp>
 
 /* Windows has a max and a min macros which collides with min() and max()
  * methods of default_random_generator */
@@ -46,36 +48,6 @@ try_insert_node_finish_marker()
 {
 }
 #endif
-
-template <typename T>
-inline void
-store_with_release(persistent_pool_ptr<T> &dst, persistent_pool_ptr<T> src)
-{
-#if LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
-	ANNOTATE_HAPPENS_BEFORE(&dst);
-#endif
-	std::atomic_thread_fence(std::memory_order_release);
-
-	dst = src;
-}
-
-template <typename T>
-inline persistent_pool_ptr<T>
-load_with_acquire(const persistent_pool_ptr<T> &ptr)
-{
-	persistent_pool_ptr<T> ret = ptr;
-	std::atomic_thread_fence(std::memory_order_acquire);
-#if LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
-	ANNOTATE_HAPPENS_AFTER(&ptr);
-#endif
-	return ret;
-}
-
-template <typename Compare>
-using is_transparent = typename Compare::is_transparent;
-
-template <typename Compare>
-using has_is_transparent = detail::supports<Compare, is_transparent>;
 
 /**
  * Copy assignment implementation for allocator if
@@ -153,14 +125,17 @@ public:
 	using const_reference = const value_type &;
 	using pointer = value_type *;
 	using const_pointer = const value_type *;
-	using node_pointer = persistent_pool_ptr<skip_list_node>;
+	using node_pointer =
+		obj::experimental::self_relative_ptr<skip_list_node>;
+	using atomic_node_pointer = std::atomic<node_pointer>;
 	using mutex_type = Mutex;
 	using lock_type = LockType;
 
 	skip_list_node(size_type levels) : height_(levels)
 	{
 		for (size_type lev = 0; lev < height_; ++lev)
-			detail::create<node_pointer>(&get_next(lev), nullptr);
+			detail::create<atomic_node_pointer>(&get_next(lev),
+							    nullptr);
 
 		assert(height() == levels);
 #if LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
@@ -170,7 +145,7 @@ public:
 		 */
 		for (size_type lev = 0; lev < height_; ++lev) {
 			VALGRIND_HG_DISABLE_CHECKING(&get_next(lev),
-						     sizeof(node_pointer));
+						     sizeof(get_next(lev)));
 		}
 #endif
 	}
@@ -179,8 +154,8 @@ public:
 	    : height_(levels)
 	{
 		for (size_type lev = 0; lev < height_; ++lev)
-			detail::create<node_pointer>(&get_next(lev),
-						     new_nexts[lev]);
+			detail::create<atomic_node_pointer>(&get_next(lev),
+							    new_nexts[lev]);
 
 		assert(height() == levels);
 #if LIBPMEMOBJ_CPP_VG_HELGRIND_ENABLED
@@ -190,7 +165,7 @@ public:
 		 */
 		for (size_type lev = 0; lev < height_; ++lev) {
 			VALGRIND_HG_DISABLE_CHECKING(&get_next(lev),
-						     sizeof(node_pointer));
+						     sizeof(get_next(lev)));
 		}
 #endif
 	}
@@ -198,7 +173,7 @@ public:
 	~skip_list_node()
 	{
 		for (size_type lev = 0; lev < height_; ++lev)
-			detail::destroy<node_pointer>(get_next(lev));
+			detail::destroy<atomic_node_pointer>(get_next(lev));
 	}
 
 	skip_list_node(const skip_list_node &) = delete;
@@ -227,30 +202,41 @@ public:
 	next(size_type level) const
 	{
 		assert(level < height());
-		return load_with_acquire(get_next(level));
+		return get_next(level).load(std::memory_order_acquire);
 	}
 
+	/**
+	 * Can`t be called concurrently
+	 * Should be called inside a transaction
+	 */
 	void
-	set_next(size_type level, node_pointer next)
+	set_next_tx(size_type level, node_pointer next)
 	{
 		assert(level < height());
-		store_with_release(get_next(level), next);
+		assert(pmemobj_tx_stage() == TX_STAGE_WORK);
+		auto &node = get_next(level);
+		obj::transaction::snapshot<atomic_node_pointer>(&node);
+		node.store(next, std::memory_order_release);
 	}
 
 	void
 	set_next(obj::pool_base pop, size_type level, node_pointer next)
 	{
-		set_next(level, next);
-		pop.persist(&get_next(level), sizeof(node_pointer));
+		assert(level < height());
+		auto &node = get_next(level);
+		node.store(next, std::memory_order_release);
+		pop.persist(&node, sizeof(node));
 	}
 
 	void
 	set_nexts(const node_pointer *new_nexts, size_type h)
 	{
 		assert(h == height());
-		node_pointer *nexts = get_nexts();
+		auto *nexts = get_nexts();
 
-		std::copy(new_nexts, new_nexts + h, nexts);
+		for (size_type i = 0; i < h; i++) {
+			nexts[i].store(new_nexts[i], std::memory_order_relaxed);
+		}
 	}
 
 	void
@@ -259,8 +245,8 @@ public:
 	{
 		set_nexts(new_nexts, h);
 
-		node_pointer *nexts = get_nexts();
-		pop.persist(nexts, sizeof(node_pointer) * h);
+		auto *nexts = get_nexts();
+		pop.persist(nexts, sizeof(nexts[0]) * h);
 	}
 
 	/** @return number of layers */
@@ -277,24 +263,24 @@ public:
 	}
 
 private:
-	node_pointer *
+	atomic_node_pointer *
 	get_nexts()
 	{
-		return reinterpret_cast<node_pointer *>(this + 1);
+		return reinterpret_cast<atomic_node_pointer *>(this + 1);
 	}
 
-	node_pointer &
+	atomic_node_pointer &
 	get_next(size_type level)
 	{
-		node_pointer *arr = get_nexts();
+		auto *arr = get_nexts();
 		return arr[level];
 	}
 
-	const node_pointer &
+	const atomic_node_pointer &
 	get_next(size_type level) const
 	{
-		const node_pointer *arr =
-			reinterpret_cast<const node_pointer *>(this + 1);
+		auto *arr =
+			reinterpret_cast<const atomic_node_pointer *>(this + 1);
 		return arr[level];
 	}
 
@@ -323,13 +309,12 @@ public:
 	using pointer = typename std::conditional<is_const, const value_type *,
 						  value_type *>::type;
 
-	skip_list_iterator() : pool_uuid(0), node(nullptr)
+	skip_list_iterator() : node(nullptr)
 	{
 	}
 
 	/** Copy constructor. */
-	skip_list_iterator(const skip_list_iterator &other)
-	    : pool_uuid(other.pool_uuid), node(other.node)
+	skip_list_iterator(const skip_list_iterator &other) : node(other.node)
 	{
 	}
 
@@ -337,7 +322,7 @@ public:
 	template <typename U = void,
 		  typename = typename std::enable_if<is_const, U>::type>
 	skip_list_iterator(const skip_list_iterator<node_type, false> &other)
-	    : pool_uuid(other.pool_uuid), node(other.node)
+	    : node(other.node)
 	{
 	}
 
@@ -355,7 +340,7 @@ public:
 	operator++()
 	{
 		assert(node != nullptr);
-		node = node->next(0).get(pool_uuid);
+		node = node->next(0).get();
 		return *this;
 	}
 
@@ -367,20 +352,23 @@ public:
 		return tmp;
 	}
 
+	skip_list_iterator &
+	operator=(const skip_list_iterator &other)
+	{
+		node = other.node;
+		return *this;
+	}
+
 private:
-	skip_list_iterator(uint64_t pool_uuid, node_type *n)
-	    : pool_uuid(pool_uuid), node(n)
+	explicit skip_list_iterator(node_type *n) : node(n)
 	{
 	}
 
 	template <typename T = void,
 		  typename = typename std::enable_if<is_const, T>::type>
-	skip_list_iterator(uint64_t pool_uuid, const node_type *n)
-	    : pool_uuid(pool_uuid), node(n)
+	explicit skip_list_iterator(const node_type *n) : node(n)
 	{
 	}
-
-	uint64_t pool_uuid;
 
 	node_ptr node;
 
@@ -510,9 +498,6 @@ protected:
 	using iterator = skip_list_iterator<list_node_type, false>;
 	using const_iterator = skip_list_iterator<list_node_type, true>;
 
-	using reverse_iterator = std::reverse_iterator<iterator>;
-	using const_reverse_iterator = std::reverse_iterator<const_iterator>;
-
 	static constexpr size_type MAX_LEVEL = traits_type::max_level;
 
 	using random_level_generator_type = geometric_level_generator<
@@ -523,7 +508,8 @@ protected:
 		allocator_type>::template rebind_traits<uint8_t>;
 	using node_ptr = list_node_type *;
 	using const_node_ptr = const list_node_type *;
-	using persistent_node_ptr = persistent_pool_ptr<list_node_type>;
+	using persistent_node_ptr =
+		obj::experimental::self_relative_ptr<list_node_type>;
 
 	using prev_array_type = std::array<node_ptr, MAX_LEVEL>;
 	using next_array_type = std::array<persistent_node_ptr, MAX_LEVEL>;
@@ -1445,6 +1431,84 @@ public:
 	}
 
 	/**
+	 * Returns an iterator pointing to the first element that is not less
+	 * than (i.e. greater or equal to) key. Equivalent of lower_bound.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 *
+	 * @return Iterator pointing to the first element that is not less than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	iterator
+	find_higher_eq(const key_type &key)
+	{
+		return internal_get_bound(key, _compare);
+	}
+
+	/**
+	 * Returns an iterator pointing to the first element that is not less
+	 * than (i.e. greater or equal to) key. Equivalent of lower_bound.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 *
+	 * @return Iterator pointing to the first element that is not less than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	const_iterator
+	find_higher_eq(const key_type &key) const
+	{
+		return internal_get_bound(key, _compare);
+	}
+
+	/**
+	 * Returns an iterator pointing to the first element that compares not
+	 * less (i.e. greater or equal) to the value x. This overload only
+	 * participates in overload resolution if the qualified-id
+	 * Compare::is_transparent is valid and denotes a type. They allow
+	 * calling this function without constructing an instance of Key.
+	 * Equivalent of lower_bound.
+	 *
+	 * @param[in] x alternative value that can be compared to Key.
+	 *
+	 * @return Iterator pointing to the first element that is not less than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	template <typename K,
+		  typename = typename std::enable_if<
+			  has_is_transparent<key_compare>::value, K>::type>
+	iterator
+	find_higher_eq(const K &x)
+	{
+		return internal_get_bound(x, _compare);
+	}
+
+	/**
+	 * Returns an iterator pointing to the first element that compares not
+	 * less (i.e. greater or equal) to the value x. This overload only
+	 * participates in overload resolution if the qualified-id
+	 * Compare::is_transparent is valid and denotes a type. They allow
+	 * calling this function without constructing an instance of Key.
+	 * Equivalent of lower_bound.
+	 *
+	 * @param[in] x alternative value that can be compared to Key.
+	 *
+	 * @return Iterator pointing to the first element that is not less than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	template <typename K,
+		  typename = typename std::enable_if<
+			  has_is_transparent<key_compare>::value, K>::type>
+	const_iterator
+	find_higher_eq(const K &x) const
+	{
+		return internal_get_bound(x, _compare);
+	}
+
+	/**
 	 * Returns an iterator pointing to the first element that is greater
 	 * than key.
 	 *
@@ -1518,6 +1582,246 @@ public:
 	upper_bound(const K &x) const
 	{
 		return internal_get_bound(x, not_greater_compare(_compare));
+	}
+
+	/**
+	 * Returns an iterator pointing to the first element that is greater
+	 * than key. Equivalent of upper_bound.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 *
+	 * @return Iterator pointing to the first element that is greater than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	iterator
+	find_higher(const key_type &key)
+	{
+		return internal_get_bound(key, not_greater_compare(_compare));
+	}
+
+	/**
+	 * Returns an iterator pointing to the first element that is greater
+	 * than key. Equivalent of upper_bound.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 *
+	 * @return Iterator pointing to the first element that is greater than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	const_iterator
+	find_higher(const key_type &key) const
+	{
+		return internal_get_bound(key, not_greater_compare(_compare));
+	}
+
+	/**
+	 * Returns an iterator pointing to the first element that compares
+	 * greater to the value x. This overload only participates in overload
+	 * resolution if the qualified-id Compare::is_transparent is valid and
+	 * denotes a type. They allow calling this function without constructing
+	 * an instance of Key. Equivalent of upper_bound.
+	 *
+	 * @param[in] x alternative value that can be compared to Key.
+	 *
+	 * @return Iterator pointing to the first element that is greater than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	template <typename K,
+		  typename = typename std::enable_if<
+			  has_is_transparent<key_compare>::value, K>::type>
+	iterator
+	find_higher(const K &x)
+	{
+		return internal_get_bound(x, not_greater_compare(_compare));
+	}
+
+	/**
+	 * Returns an iterator pointing to the first element that compares
+	 * greater to the value x. This overload only participates in overload
+	 * resolution if the qualified-id Compare::is_transparent is valid and
+	 * denotes a type. They allow calling this function without constructing
+	 * an instance of Key. Equivalent of upper_bound.
+	 *
+	 * @param[in] x alternative value that can be compared to Key.
+	 *
+	 * @return Iterator pointing to the first element that is greater than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	template <typename K,
+		  typename = typename std::enable_if<
+			  has_is_transparent<key_compare>::value, K>::type>
+	const_iterator
+	find_higher(const K &x) const
+	{
+		return internal_get_bound(x, not_greater_compare(_compare));
+	}
+
+	/**
+	 * Returns an iterator pointing to the biggest element that is less
+	 * than key.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 *
+	 * @return Iterator pointing to the biggest element that is less than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	iterator
+	find_lower(const key_type &key)
+	{
+		auto it = internal_get_biggest_less_than(key, _compare);
+		return iterator(
+			const_cast<typename iterator::node_ptr>(it.node));
+	}
+
+	/**
+	 * Returns a const iterator pointing to the biggest element that is less
+	 * than key.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 *
+	 * @return Const iterator pointing to the biggest element that is less
+	 * than key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	const_iterator
+	find_lower(const key_type &key) const
+	{
+		return internal_get_biggest_less_than(key, _compare);
+	}
+
+	/**
+	 * Returns an iterator pointing to the biggest element that is less
+	 * than key. This overload only participates in overload
+	 * resolution if the qualified-id Compare::is_transparent is valid and
+	 * denotes a type. They allow calling this function without constructing
+	 * an instance of Key.
+	 *
+	 * @param[in] key alternative value that can be compared to Key.
+	 *
+	 * @return Iterator pointing to the biggest element that is less than
+	 * key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	template <typename K,
+		  typename = typename std::enable_if<
+			  has_is_transparent<key_compare>::value, K>::type>
+	iterator
+	find_lower(const K &key)
+	{
+		auto it = internal_get_biggest_less_than(key, _compare);
+		return iterator(
+			const_cast<typename iterator::node_ptr>(it.node));
+	}
+
+	/**
+	 * Returns a const iterator pointing to the biggest element that is less
+	 * than key. This overload only participates in overload
+	 * resolution if the qualified-id Compare::is_transparent is valid and
+	 * denotes a type. They allow calling this function without constructing
+	 * an instance of Key.
+	 *
+	 * @param[in] key alternative value that can be compared to Key.
+	 *
+	 * @return Const iterator pointing to the biggest element that is less
+	 * than key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	template <typename K,
+		  typename = typename std::enable_if<
+			  has_is_transparent<key_compare>::value, K>::type>
+	const_iterator
+	find_lower(const K &key) const
+	{
+		return internal_get_biggest_less_than(key, _compare);
+	}
+
+	/**
+	 * Returns an iterator pointing to the biggest element that is less
+	 * than or equal to key.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 *
+	 * @return Iterator pointing to the biggest element that is less than
+	 * or equal to key. If no such element is found, a past-the-end iterator
+	 * is returned.
+	 */
+	iterator
+	find_lower_eq(const key_type &key)
+	{
+		auto it = internal_get_biggest_less_than(
+			key, not_greater_compare(_compare));
+		return iterator(
+			const_cast<typename iterator::node_ptr>(it.node));
+	}
+
+	/**
+	 * Returns a const iterator pointing to the biggest element that is less
+	 * than or equal to key.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 *
+	 * @return Const iterator pointing to the biggest element that is less
+	 * than or equal to key. If no such element is found, a past-the-end
+	 * iterator is returned.
+	 */
+	const_iterator
+	find_lower_eq(const key_type &key) const
+	{
+		return internal_get_biggest_less_than(
+			key, not_greater_compare(_compare));
+	}
+
+	/**
+	 * Returns an iterator pointing to the biggest element that is less
+	 * than or equal to key. This overload only participates in overload
+	 * resolution if the qualified-id Compare::is_transparent is valid and
+	 * denotes a type. They allow calling this function without constructing
+	 * an instance of Key.
+	 *
+	 * @param[in] key alternative value that can be compared to Key.
+	 *
+	 * @return Iterator pointing to the biggest element that is less than or
+	 * equal to key. If no such element is found, a past-the-end iterator is
+	 * returned.
+	 */
+	template <typename K,
+		  typename = typename std::enable_if<
+			  has_is_transparent<key_compare>::value, K>::type>
+	iterator
+	find_lower_eq(const K &key)
+	{
+		auto it = internal_get_biggest_less_than(
+			key, not_greater_compare(_compare));
+		return iterator(
+			const_cast<typename iterator::node_ptr>(it.node));
+	}
+
+	/**
+	 * Returns a const iterator pointing to the biggest element that is less
+	 * than or equal to key. This overload only participates in overload
+	 * resolution if the qualified-id Compare::is_transparent is valid and
+	 * denotes a type. They allow calling this function without constructing
+	 * an instance of Key.
+	 *
+	 * @param[in] key alternative value that can be compared to Key.
+	 *
+	 * @return Const iterator pointing to the biggest element that is less
+	 * than or equal to key. If no such element is found, a past-the-end
+	 * iterator is returned.
+	 */
+	template <typename K,
+		  typename = typename std::enable_if<
+			  has_is_transparent<key_compare>::value, K>::type>
+	const_iterator
+	find_lower_eq(const K &key) const
+	{
+		return internal_get_biggest_less_than(
+			key, not_greater_compare(_compare));
 	}
 
 	/**
@@ -1672,23 +1976,22 @@ public:
 	void
 	clear()
 	{
-		assert(dummy_head(pool_uuid)->height() > 0);
+		assert(dummy_head->height() > 0);
 		obj::pool_base pop = get_pool_base();
 
-		persistent_node_ptr current = dummy_head(pool_uuid)->next(0);
+		persistent_node_ptr current = dummy_head->next(0);
 
 		obj::transaction::run(pop, [&] {
 			while (current) {
-				assert(current(pool_uuid)->height() > 0);
-				persistent_node_ptr next =
-					current(pool_uuid)->next(0);
+				assert(current->height() > 0);
+				persistent_node_ptr next = current->next(0);
 				delete_node(current);
 				current = next;
 			}
 
-			node_ptr head = dummy_head.get(pool_uuid);
+			node_ptr head = dummy_head.get();
 			for (size_type i = 0; i < head->height(); ++i) {
-				head->set_next(i, nullptr);
+				head->set_next_tx(i, nullptr);
 			}
 
 			on_init_size = 0;
@@ -1707,9 +2010,7 @@ public:
 	iterator
 	begin()
 	{
-		return iterator(
-			pool_uuid,
-			dummy_head.get(pool_uuid)->next(0).get(pool_uuid));
+		return iterator(dummy_head.get()->next(0).get());
 	}
 
 	/**
@@ -1721,9 +2022,7 @@ public:
 	const_iterator
 	begin() const
 	{
-		return const_iterator(
-			pool_uuid,
-			dummy_head.get(pool_uuid)->next(0).get(pool_uuid));
+		return const_iterator(dummy_head.get()->next(0).get());
 	}
 
 	/**
@@ -1735,9 +2034,7 @@ public:
 	const_iterator
 	cbegin() const
 	{
-		return const_iterator(
-			pool_uuid,
-			dummy_head.get(pool_uuid)->next(0).get(pool_uuid));
+		return const_iterator(dummy_head.get()->next(0).get());
 	}
 
 	/**
@@ -1750,7 +2047,7 @@ public:
 	iterator
 	end()
 	{
-		return iterator(pool_uuid, nullptr);
+		return iterator(nullptr);
 	}
 
 	/**
@@ -1763,7 +2060,7 @@ public:
 	const_iterator
 	end() const
 	{
-		return const_iterator(pool_uuid, nullptr);
+		return const_iterator(nullptr);
 	}
 
 	/**
@@ -1776,7 +2073,7 @@ public:
 	const_iterator
 	cend() const
 	{
-		return const_iterator(pool_uuid, nullptr);
+		return const_iterator(nullptr);
 	}
 
 	/**
@@ -1817,27 +2114,9 @@ public:
 	}
 
 	/**
-	 * Returns a const reference to the allocator associated with the
-	 * container.
-	 *
-	 * @return Const reference to the associated allocator.
+	 * XXX: Implement get_allocator() interface.
+	 * Related with: https://github.com/pmem/libpmemobj-cpp/issues/827
 	 */
-	const allocator_type &
-	get_allocator() const
-	{
-		return _node_allocator;
-	}
-
-	/**
-	 * Returns a reference to the allocator associated with the container.
-	 *
-	 * @return Reference to the associated allocator.
-	 */
-	allocator_type &
-	get_allocator()
-	{
-		return _node_allocator;
-	}
 
 	/**
 	 * Exchanges the contents of the container with those of other
@@ -2128,14 +2407,14 @@ private:
 	}
 
 	/**
-	 * Finds position on the @param level using @param cmp
+	 * Finds position on the @arg level using @arg cmp
 	 * @param level - on which level search prev node
 	 * @param prev - pointer to the start node to search
 	 * @param key - key to search
 	 * @param cmp - callable object to compare two objects
 	 *  (_compare member is default comparator)
 	 * @returns pointer to the node which is not satisfy the comparison with
-	 * @param key
+	 * @arg key
 	 */
 	template <typename K, typename pointer_type, typename comparator>
 	persistent_node_ptr
@@ -2144,13 +2423,13 @@ private:
 	{
 		assert(level < prev->height());
 		persistent_node_ptr next = prev->next(level);
-		pointer_type curr = next.get(pool_uuid);
+		pointer_type curr = next.get();
 
 		while (curr && cmp(get_key(curr), key)) {
 			prev = curr;
 			assert(level < prev->height());
 			next = prev->next(level);
-			curr = next.get(pool_uuid);
+			curr = next.get();
 		}
 
 		return next;
@@ -2158,7 +2437,7 @@ private:
 
 	/**
 	 * The method finds insert position for the given @arg key. It finds
-	 * successor and predecessr nodes on each level of the skip list.
+	 * successor and predecessor nodes on each level of the skip list.
 	 *
 	 * @param[out] prev_nodes array of pointers to predecessor nodes on each
 	 * level.
@@ -2181,7 +2460,7 @@ private:
 	}
 
 	/**
-	 * The method finds successor and predecessr nodes on each level of the
+	 * The method finds successor and predecessor nodes on each level of the
 	 * skip list for the given @arg key.
 	 *
 	 * @param[out] prev_nodes array of pointers to predecessor nodes on each
@@ -2197,7 +2476,7 @@ private:
 			      next_array_type &next_nodes, const K &key,
 			      const comparator &cmp)
 	{
-		node_ptr prev = dummy_head.get(pool_uuid);
+		node_ptr prev = dummy_head.get();
 		prev_nodes.fill(prev);
 		next_nodes.fill(nullptr);
 
@@ -2235,7 +2514,7 @@ private:
 			tls_entry.insert_stage = not_started;
 		});
 
-		node_ptr n = tls_entry.ptr.get(pool_uuid);
+		node_ptr n = tls_entry.ptr.get();
 		size_type height = n->height();
 
 		std::pair<iterator, bool> insert_result = internal_insert_node(
@@ -2282,7 +2561,7 @@ private:
 		persistent_node_ptr new_node =
 			create_node(std::forward<Args>(args)...);
 
-		node_ptr n = new_node.get(pool_uuid);
+		node_ptr n = new_node.get();
 		size_type height = n->height();
 
 		std::pair<iterator, bool> insert_result = internal_insert_node(
@@ -2361,12 +2640,12 @@ private:
 		do {
 			find_insert_pos(prev_nodes, next_nodes, key);
 
-			node_ptr next = next_nodes[0].get(pool_uuid);
+			node_ptr next = next_nodes[0].get();
 			if (next && !allow_multimapping &&
 			    !_compare(key, get_key(next))) {
 
-				return std::pair<iterator, bool>(
-					iterator(pool_uuid, next), false);
+				return std::pair<iterator, bool>(iterator(next),
+								 false);
 			}
 
 		} while ((n = try_insert_node(prev_nodes, next_nodes, height,
@@ -2375,7 +2654,7 @@ private:
 			 nullptr);
 
 		assert(n);
-		return std::pair<iterator, bool>(iterator(pool_uuid, n), true);
+		return std::pair<iterator, bool>(iterator(n), true);
 	}
 
 	/**
@@ -2389,7 +2668,7 @@ private:
 			const next_array_type &next_nodes, size_type height,
 			PrepareNode &&prepare_new_node)
 	{
-		assert(dummy_head(pool_uuid)->height() >= height);
+		assert(dummy_head->height() >= height);
 
 		lock_array locks;
 		if (!try_lock_nodes(height, prev_nodes, next_nodes, locks)) {
@@ -2400,7 +2679,7 @@ private:
 
 		persistent_node_ptr &new_node = prepare_new_node(next_nodes);
 		assert(new_node != nullptr);
-		node_ptr n = new_node.get(pool_uuid);
+		node_ptr n = new_node.get();
 
 		/*
 		 * We need to hold lock to the new node until changes
@@ -2456,11 +2735,11 @@ private:
 	check_prev_array(const prev_array_type &prevs, size_type height)
 	{
 		for (size_type l = 1; l < height; ++l) {
-			if (prevs[l] == dummy_head.get(pool_uuid)) {
+			if (prevs[l] == dummy_head.get()) {
 				continue;
 			}
 
-			assert(prevs[l - 1] != dummy_head.get(pool_uuid));
+			assert(prevs[l - 1] != dummy_head.get());
 			assert(!_compare(get_key(prevs[l - 1]),
 					 get_key(prevs[l])));
 		}
@@ -2505,7 +2784,7 @@ private:
 	const_iterator
 	internal_get_bound(const K &key, const comparator &cmp) const
 	{
-		const_node_ptr prev = dummy_head.get(pool_uuid);
+		const_node_ptr prev = dummy_head.get();
 		assert(prev->height() > 0);
 		persistent_node_ptr next = nullptr;
 
@@ -2513,7 +2792,7 @@ private:
 			next = internal_find_position(h - 1, prev, key, cmp);
 		}
 
-		return const_iterator(pool_uuid, next.get(pool_uuid));
+		return const_iterator(next.get());
 	}
 
 	/**
@@ -2531,7 +2810,7 @@ private:
 	iterator
 	internal_get_bound(const K &key, const comparator &cmp)
 	{
-		node_ptr prev = dummy_head.get(pool_uuid);
+		node_ptr prev = dummy_head.get();
 		assert(prev->height() > 0);
 		persistent_node_ptr next = nullptr;
 
@@ -2539,7 +2818,36 @@ private:
 			next = internal_find_position(h - 1, prev, key, cmp);
 		}
 
-		return iterator(pool_uuid, next.get(pool_uuid));
+		return iterator(next.get());
+	}
+
+	/**
+	 * Returns an iterator pointing to the last element from the list for
+	 * which cmp(element, key) is true.
+	 *
+	 * @param[in] key key value to compare the elements to.
+	 * @param[in] cmp comparator functor used for the search.
+	 *
+	 * @return Iterator pointing to the first element for which
+	 * cmp(element, key) is false. If no such element is found, a
+	 * past-the-end iterator is returned.
+	 */
+	template <typename K, typename comparator>
+	const_iterator
+	internal_get_biggest_less_than(const K &key,
+				       const comparator &cmp) const
+	{
+		const_node_ptr prev = dummy_head.get();
+		assert(prev->height() > 0);
+
+		for (size_type h = prev->height(); h > 0; --h) {
+			internal_find_position(h - 1, prev, key, cmp);
+		}
+
+		if (prev == dummy_head.get())
+			return end();
+
+		return const_iterator(prev);
 	}
 
 	iterator
@@ -2563,8 +2871,7 @@ private:
 			--_size;
 		});
 
-		return iterator(pool_uuid,
-				extract_result.second.get(pool_uuid));
+		return iterator(extract_result.second.get());
 	}
 
 	/**
@@ -2573,7 +2880,7 @@ private:
 	std::pair<persistent_node_ptr, persistent_node_ptr>
 	internal_extract(const_iterator it)
 	{
-		assert(dummy_head(pool_uuid)->height() > 0);
+		assert(dummy_head->height() > 0);
 		assert(it != end());
 		assert(pmemobj_tx_stage() == TX_STAGE_WORK);
 
@@ -2584,7 +2891,7 @@ private:
 
 		fill_prev_next_arrays(prev_nodes, next_nodes, key, _compare);
 
-		node_ptr erase_node = next_nodes[0].get(pool_uuid);
+		node_ptr erase_node = next_nodes[0].get();
 		assert(erase_node != nullptr);
 
 		if (!_compare(key, get_key(erase_node))) {
@@ -2610,9 +2917,9 @@ private:
 		for (size_type level = 0; level < erase_node->height();
 		     ++level) {
 			assert(prev_nodes[level]->height() > level);
-			assert(next_nodes[level].get(pool_uuid) == erase_node);
-			prev_nodes[level]->set_next(level,
-						    erase_node->next(level));
+			assert(next_nodes[level].get() == erase_node);
+			prev_nodes[level]->set_next_tx(level,
+						       erase_node->next(level));
 		}
 
 		return std::pair<persistent_node_ptr, persistent_node_ptr>(
@@ -2643,15 +2950,15 @@ private:
 		assert(pmemobj_tx_stage() == TX_STAGE_WORK);
 
 		prev_array_type prev_nodes;
-		prev_nodes.fill(dummy_head.get(pool_uuid));
+		prev_nodes.fill(dummy_head.get());
 		size_type sz = 0;
 
 		for (; first != last; ++first, ++sz) {
 			persistent_node_ptr new_node = create_node(*first);
-			node_ptr n = new_node.get(pool_uuid);
+			node_ptr n = new_node.get();
 			for (size_type level = 0; level < n->height();
 			     ++level) {
-				prev_nodes[level]->set_next(level, new_node);
+				prev_nodes[level]->set_next_tx(level, new_node);
 				prev_nodes[level] = n;
 			}
 		}
@@ -2721,7 +3028,7 @@ private:
 	construct_value_type(persistent_node_ptr node, Tuple &&args,
 			     index_sequence<I...>)
 	{
-		node_ptr new_node = node.get(pool_uuid);
+		node_ptr new_node = node.get();
 
 		node_allocator_traits::construct(
 			_node_allocator, new_node->get(),
@@ -2769,8 +3076,8 @@ private:
 
 		assert(n != nullptr);
 
-		node_allocator_traits::construct(_node_allocator,
-						 n.get(pool_uuid), height,
+		node_allocator_traits::construct(_node_allocator, n.get(),
+						 height,
 						 std::forward<Args>(args)...);
 
 		return n;
@@ -2781,7 +3088,7 @@ private:
 	delete_node(persistent_node_ptr &node)
 	{
 		assert(pmemobj_tx_stage() == TX_STAGE_WORK);
-		node_ptr n = node.get(pool_uuid);
+		node_ptr n = node.get();
 		size_type sz = calc_node_size(n->height());
 
 		/* Destroy value */
@@ -2805,7 +3112,7 @@ private:
 		 * pointer to raw array of bytes.
 		 */
 		obj::persistent_ptr<uint8_t> tmp =
-			node.get_persistent_ptr(pool_uuid).raw();
+			node.to_persistent_ptr().raw();
 		node_allocator_traits::deallocate(_node_allocator, tmp, sz);
 	}
 
@@ -2821,7 +3128,6 @@ private:
 	get_iterator(const_iterator it)
 	{
 		return iterator(
-			pool_uuid,
 			const_cast<typename iterator::node_ptr>(it.node));
 	}
 
@@ -2884,7 +3190,7 @@ private:
 		assert(tls_entry.insert_stage == in_progress);
 		prev_array_type prev_nodes;
 		next_array_type next_nodes;
-		node_ptr n = node.get(pool_uuid);
+		node_ptr n = node.get();
 		const key_type &key = get_key(n);
 		size_type height = n->height();
 
