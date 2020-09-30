@@ -1,3 +1,10 @@
+libpmemobj-cpp (1.11-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Enable TBB tests.
+
+ -- Adam Borowski <kilobyte@angband.pl>  Wed, 30 Sep 2020 20:14:18 +0200
+
 libpmemobj-cpp (1.11~rc1-1) experimental; urgency=medium
 
   * New upstream pre-release.
