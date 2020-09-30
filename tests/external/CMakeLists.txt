@@ -3,8 +3,8 @@
 
 include(../ctest_helpers.cmake)
 
-add_cppstyle(map_helpers ${CMAKE_CURRENT_SOURCE_DIR}/libcxx/map/*.hpp)
-add_check_whitespace(map_helpers ${CMAKE_CURRENT_SOURCE_DIR}/libcxx/map/*.hpp)
+add_cppstyle(map_helpers ${CMAKE_CURRENT_SOURCE_DIR}/libcxx/map/*.h*)
+add_check_whitespace(map_helpers ${CMAKE_CURRENT_SOURCE_DIR}/libcxx/map/*.h*)
 
 function(add_test_expect_failure name)
 	set(srcs ${ARGN})
@@ -14,6 +14,7 @@ function(add_test_expect_failure name)
 	add_check_whitespace(tests-external-${name} ${srcs})
 
 	add_executable(${name}_fail_expected ${srcs})
+	target_link_libraries(${name}_fail_expected ${LIBPMEMOBJ_LIBRARIES})
 	set_target_properties(${name}_fail_expected PROPERTIES
 				EXCLUDE_FROM_ALL TRUE
 				EXCLUDE_FROM_DEFAULT_BUILD TRUE)
@@ -707,8 +708,13 @@ if (TEST_STRING)
 	add_test_generic(NAME string_libcxx_capacity_shrink_to_fit TRACERS none pmemcheck memcheck)
 
 	# XXX: port libcxx test basic_string/string.capacity/max_size.pass
-	# XXX: port libcxx test basic_string/string.cons/string_view_assignment.pass
+
+	build_test(string_libcxx_string_view_assignment libcxx/basic_string/string.cons/string_view_assignment.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_assignment TRACERS none pmemcheck memcheck)
+
 	# XXX: port libcxx test basic_string/string.cons/T_size_size.pass
+	build_test(string_libcxx_T_size_size libcxx/basic_string/string.cons/T_size_size.pass.cpp)
+	add_test_generic(NAME string_libcxx_T_size_size TRACERS none pmemcheck memcheck)
 
 	build_test(string_libcxx_brace_assignment libcxx/basic_string/string.cons/brace_assignment.pass.cpp)
 	add_test_generic(NAME string_libcxx_brace_assignment TRACERS none pmemcheck memcheck)
@@ -732,7 +738,7 @@ if (TEST_STRING)
 	add_test_generic(NAME string_libcxx_string_view TRACERS none pmemcheck memcheck)
 
 	# XXX: port libcxx test basic_string/string.cons/initializer_list_assignment.pass
-	# XXX: port libcxx test basic_string/string.cons/string_view.fail
+	add_test_expect_failure(string_libcxx_string_view libcxx/basic_string/string.cons/string_view.fail.cpp)
 endif()
 
 if(TEST_SEGMENT_VECTOR_ARRAY_EXPSIZE)
@@ -1114,6 +1120,9 @@ if (TEST_CONCURRENT_MAP)
 	build_test_ext(NAME map_libcxx_emplace SRC_FILES libcxx/map/map.modifiers/emplace.pass.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_CONCURRENT_MAP)
 	add_test_generic(NAME map_libcxx_emplace TRACERS none pmemcheck memcheck)
 
+	build_test_ext(NAME map_libcxx_erase_iter SRC_FILES libcxx/map/map.modifiers/erase_iter.pass.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_CONCURRENT_MAP)
+	add_test_generic(NAME map_libcxx_erase_iter TRACERS none pmemcheck memcheck)
+
 	build_test_ext(NAME map_libcxx_erase_iter_iter SRC_FILES libcxx/map/map.modifiers/erase_iter_iter.pass.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_CONCURRENT_MAP)
 	add_test_generic(NAME map_libcxx_erase_iter_iter TRACERS none pmemcheck memcheck)
 
@@ -1199,6 +1208,9 @@ if (TEST_RADIX_TREE)
 
 	build_test_ext(NAME radix_libcxx_emplace SRC_FILES libcxx/map/map.modifiers/emplace.pass.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_RADIX)
 	add_test_generic(NAME radix_libcxx_emplace TRACERS none pmemcheck memcheck)
+
+	build_test_ext(NAME radix_libcxx_erase_iter SRC_FILES libcxx/map/map.modifiers/erase_iter.pass.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_RADIX)
+	add_test_generic(NAME radix_libcxx_erase_iter TRACERS none pmemcheck memcheck)
 
 	build_test_ext(NAME radix_libcxx_erase_iter_iter SRC_FILES libcxx/map/map.modifiers/erase_iter_iter.pass.cpp BUILD_OPTIONS -DLIBPMEMOBJ_CPP_TESTS_RADIX)
 	add_test_generic(NAME radix_libcxx_erase_iter_iter TRACERS none pmemcheck memcheck)

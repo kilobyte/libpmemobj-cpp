@@ -7,7 +7,7 @@ project(libpmemobj-cpp C CXX)
 set(VERSION_MAJOR 1)
 set(VERSION_MINOR 11)
 set(VERSION_PATCH 0)
-set(VERSION_PRERELEASE rc1)
+#set(VERSION_PRERELEASE rc3)
 
 set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR})
 if (VERSION_PATCH GREATER 0)
@@ -19,6 +19,8 @@ endif()
 
 set(LIBPMEMOBJ_REQUIRED_VERSION 1.8)
 set(LIBPMEM_REQUIRED_VERSION 1.7)
+# Only pmreorder in ver. >= 1.9 guarantees reliable output
+set(PMREORDER_REQUIRED_VERSION 1.9)
 
 set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
 
@@ -51,6 +53,7 @@ option(USE_UBSAN "enable UndefinedBehaviorSanitizer (debugging)" OFF)
 
 option(TESTS_USE_FORCED_PMEM "run tests with PMEM_IS_PMEM_FORCE=1" OFF)
 option(TESTS_USE_VALGRIND "enable tests with valgrind (if found)" ON)
+option(TESTS_PMREORDER "enable tests with pmreorder (if pmreorder found; it requires PMDK ver. >= 1.9)" OFF)
 option(TESTS_CONCURRENT_HASH_MAP_DRD_HELGRIND "enable concurrent_hash_map tests with drd and helgrind (can only be run on PMEM)." OFF)
 option(TESTS_CONCURRENT_GDB "enable concurrent gdb tests - require 'set scheduler-locking on' support (OS dependent) " OFF)
 option(TESTS_LONG "enable long running tests" OFF)
@@ -140,7 +143,7 @@ else()
 	message(STATUS "clang not found")
 endif()
 
-if(BUILD_TESTS OR BUILD_EXAMPLES)
+if(BUILD_TESTS OR BUILD_EXAMPLES OR BUILD_BENCHMARKS)
 	if(PKG_CONFIG_FOUND)
 		pkg_check_modules(LIBPMEMOBJ REQUIRED libpmemobj>=${LIBPMEMOBJ_REQUIRED_VERSION})
 		pkg_check_modules(LIBPMEM REQUIRED libpmem>=${LIBPMEM_REQUIRED_VERSION})

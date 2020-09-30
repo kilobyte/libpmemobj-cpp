@@ -30,13 +30,6 @@ if [[ "$CI_EVENT_TYPE" != "cron" && "$CI_BRANCH" != "coverity_scan" \
 	exit 0
 fi
 
-if [[ ( "$CI_EVENT_TYPE" == "cron" || "$CI_BRANCH" == "coverity_scan" )\
-	&& "$TYPE" != "coverity" ]]; then
-	echo "INFO: Skip regular jobs if build is triggered either by 'cron'" \
-		" or by a push to 'coverity_scan' branch"
-	exit 0
-fi
-
 if [[ -z "$OS" || -z "$OS_VER" ]]; then
 	echo "ERROR: The variables OS and OS_VER have to be set " \
 		"(eg. OS=fedora, OS_VER=31)."
@@ -146,6 +139,7 @@ docker run --privileged=true --name=$containerName -i $TTY \
 	--env CHECK_CPP_STYLE=${CHECK_CPP_STYLE:-OFF} \
 	--env TESTS_LONG=${TESTS_LONG:-OFF} \
 	--env TESTS_TBB=${TESTS_TBB:-ON} \
+	--env TESTS_PMREORDER=${TESTS_PMREORDER:-ON} \
 	--env TZ='Europe/Warsaw' \
 	--shm-size=4G \
 	-v $HOST_WORKDIR:$WORKDIR \
