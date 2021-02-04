@@ -58,6 +58,8 @@ public:
 	using const_iterator = const_pointer;
 	using reverse_iterator = std::reverse_iterator<iterator>;
 	using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+	using range_snapshotting_iterator =
+		pmem::detail::range_snapshotting_iterator<CharT>;
 	using for_each_ptr_function =
 		std::function<void(persistent_ptr_base &)>;
 
@@ -149,6 +151,13 @@ public:
 	const CharT *cdata() const noexcept;
 	const CharT *c_str() const noexcept;
 	void for_each_ptr(for_each_ptr_function func);
+
+	/* Range */
+	slice<pointer> range(size_type p, size_type count);
+	slice<range_snapshotting_iterator> range(size_type start, size_type n,
+						 size_type snapshot_size);
+	slice<const_iterator> range(size_type start, size_type n) const;
+	slice<const_iterator> crange(size_type start, size_type n) const;
 
 	/* Iterators */
 	iterator begin();
@@ -897,7 +906,7 @@ basic_string<CharT, Traits>::assign(size_type count, CharT ch)
 {
 	auto pop = get_pool();
 
-	transaction::run(pop, [&] { replace_content(count, ch); });
+	flat_transaction::run(pop, [&] { replace_content(count, ch); });
 
 	return *this;
 }
@@ -920,7 +929,7 @@ basic_string<CharT, Traits>::assign(const basic_string &other)
 
 	auto pop = get_pool();
 
-	transaction::run(
+	flat_transaction::run(
 		pop, [&] { replace_content(other.cbegin(), other.cend()); });
 
 	return *this;
@@ -970,7 +979,7 @@ basic_string<CharT, Traits>::assign(const basic_string &other, size_type pos,
 	auto first = static_cast<difference_type>(pos);
 	auto last = first + static_cast<difference_type>(count);
 
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		replace_content(other.cbegin() + first, other.cbegin() + last);
 	});
 
@@ -1021,7 +1030,7 @@ basic_string<CharT, Traits>::assign(const CharT *s, size_type count)
 {
 	auto pop = get_pool();
 
-	transaction::run(pop, [&] { replace_content(s, s + count); });
+	flat_transaction::run(pop, [&] { replace_content(s, s + count); });
 
 	return *this;
 }
@@ -1042,7 +1051,7 @@ basic_string<CharT, Traits>::assign(const CharT *s)
 
 	auto length = traits_type::length(s);
 
-	transaction::run(pop, [&] { replace_content(s, s + length); });
+	flat_transaction::run(pop, [&] { replace_content(s, s + length); });
 
 	return *this;
 }
@@ -1065,7 +1074,7 @@ basic_string<CharT, Traits>::assign(InputIt first, InputIt last)
 {
 	auto pop = get_pool();
 
-	transaction::run(pop, [&] { replace_content(first, last); });
+	flat_transaction::run(pop, [&] { replace_content(first, last); });
 
 	return *this;
 }
@@ -1088,7 +1097,7 @@ basic_string<CharT, Traits>::assign(basic_string &&other)
 
 	auto pop = get_pool();
 
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		destroy_data();
 		move_data(std::move(other));
 	});
@@ -1380,6 +1389,101 @@ typename basic_string<CharT, Traits>::const_reference
 }
 
 /**
+ * Returns slice and snapshots requested range. This method is not specified by
+ * STL standards.
+ *
+ * @param[in] start start index of requested range.
+ * @param[in] n number of elements in range.
+ *
+ * @return slice containing elements from <start, start + n).
+ *
+ * @throw std::out_of_range if any element of the range would be outside of the
+ * string.
+ * @throw pmem::transaction_error when snapshotting failed.
+ */
+template <typename CharT, typename Traits>
+slice<typename basic_string<CharT, Traits>::pointer>
+basic_string<CharT, Traits>::range(size_type start, size_type n)
+{
+	if (start + n > size())
+		throw std::out_of_range("basic_string::range");
+
+	return is_sso_used() ? sso_data().range(start, n)
+			     : non_sso_data().range(start, n);
+}
+
+/**
+ * Returns slice. This method is not specified by STL standards.
+ *
+ * @param[in] start start index of requested range.
+ * @param[in] n number of elements in range.
+ * @param[in] snapshot_size number of elements which should be snapshotted in a
+ * bulk while traversing this slice. If provided value is larger or equal to n,
+ * entire range is added to a transaction. If value is equal to 0 no
+ * snapshotting happens.
+ *
+ * @return slice containing elements from <start, start + n).
+ *
+ * @throw std::out_of_range if any element of the range would be outside of the
+ * string.
+ * @throw pmem::transaction_error when snapshotting failed.
+ */
+template <typename CharT, typename Traits>
+slice<typename basic_string<CharT, Traits>::range_snapshotting_iterator>
+basic_string<CharT, Traits>::range(size_type start, size_type n,
+				   size_type snapshot_size)
+{
+	if (start + n > size())
+		throw std::out_of_range("basic_string::range");
+
+	if (snapshot_size > n)
+		snapshot_size = n;
+
+	return is_sso_used() ? sso_data().range(start, n, snapshot_size)
+			     : non_sso_data().range(start, n, snapshot_size);
+}
+
+/**
+ * Returns const slice. This method is not specified by STL standards.
+ *
+ * @param[in] start start index of requested range.
+ * @param[in] n number of elements in range.
+ *
+ * @return slice containing elements from <start, start + n).
+ *
+ * @throw std::out_of_range if any element of the range would be outside of the
+ * string.
+ */
+template <typename CharT, typename Traits>
+slice<typename basic_string<CharT, Traits>::const_iterator>
+basic_string<CharT, Traits>::range(size_type start, size_type n) const
+{
+	return crange(start, n);
+}
+
+/**
+ * Returns const slice. This method is not specified by STL standards.
+ *
+ * @param[in] start start index of requested range.
+ * @param[in] n number of elements in range.
+ *
+ * @return slice containing elements from <start, start + n).
+ *
+ * @throw std::out_of_range if any element of the range would be outside of the
+ * string.
+ */
+template <typename CharT, typename Traits>
+slice<typename basic_string<CharT, Traits>::const_iterator>
+basic_string<CharT, Traits>::crange(size_type start, size_type n) const
+{
+	if (start + n > size())
+		throw std::out_of_range("basic_string::range");
+
+	return {const_iterator(cdata() + start),
+		const_iterator(cdata() + start + n)};
+}
+
+/**
  * Access first element and snapshot it if there is an
  * active transaction.
  *
@@ -1529,7 +1633,7 @@ basic_string<CharT, Traits>::erase(size_type index, size_type count)
 	auto last = first + static_cast<difference_type>(count);
 
 	if (is_sso_used()) {
-		transaction::run(pop, [&] {
+		flat_transaction::run(pop, [&] {
 			auto move_len = sz - index - count;
 			auto new_size = sz - count;
 
@@ -1656,7 +1760,7 @@ basic_string<CharT, Traits>::append(size_type count, CharT ch)
 	if (is_sso_used()) {
 		auto pop = get_pool();
 
-		transaction::run(pop, [&] {
+		flat_transaction::run(pop, [&] {
 			if (new_size > sso_capacity) {
 				sso_to_large(new_size);
 
@@ -1839,7 +1943,7 @@ basic_string<CharT, Traits>::append(InputIt first, InputIt last)
 	if (is_sso_used()) {
 		auto pop = get_pool();
 
-		transaction::run(pop, [&] {
+		flat_transaction::run(pop, [&] {
 			if (new_size > sso_capacity) {
 				/* 1) Cache C-style string in case of
 				 * self-append, because it will be destroyed
@@ -2256,7 +2360,7 @@ basic_string<CharT, Traits>::insert(const_iterator pos, size_type count,
 
 	auto index = static_cast<size_type>(std::distance(cbegin(), pos));
 
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		if (is_sso_used() && new_size <= sso_capacity) {
 			auto len = sz - index;
 
@@ -2327,7 +2431,7 @@ basic_string<CharT, Traits>::insert(const_iterator pos, InputIt first,
 
 	auto index = static_cast<size_type>(std::distance(cbegin(), pos));
 
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		if (is_sso_used() && new_size <= sso_capacity) {
 			auto len = sz - index;
 
@@ -2547,7 +2651,7 @@ basic_string<CharT, Traits>::replace(const_iterator first, const_iterator last,
 
 	auto pop = get_pool();
 
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		if (is_sso_used() && new_size <= sso_capacity) {
 			add_sso_to_tx(index, new_size - index + 1);
 
@@ -2763,7 +2867,7 @@ basic_string<CharT, Traits>::replace(const_iterator first, const_iterator last,
 
 	auto pop = get_pool();
 
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		if (is_sso_used() && new_size <= sso_capacity) {
 			add_sso_to_tx(index, new_size - index + 1);
 
@@ -2959,25 +3063,7 @@ typename basic_string<CharT, Traits>::size_type
 basic_string<CharT, Traits>::find(const CharT *s, size_type pos,
 				  size_type count) const
 {
-	auto sz = size();
-
-	if (pos > sz)
-		return npos;
-
-	if (count == 0)
-		return pos;
-
-	while (pos + count <= sz) {
-		auto found = traits_type::find(cdata() + pos, sz - pos, s[0]);
-		if (!found)
-			return npos;
-		pos = static_cast<size_type>(std::distance(cdata(), found));
-		if (traits_type::compare(found, s, count) == 0) {
-			return pos;
-		}
-		++pos;
-	}
-	return npos;
+	return operator basic_string_view<CharT, Traits>().find(s, pos, count);
 }
 
 /**
@@ -3018,9 +3104,9 @@ basic_string<CharT, Traits>::find(CharT ch, size_type pos) const noexcept
  * If npos or any value not smaller than size()-1 is passed as pos, whole string
  * will be searched.
  * @param[in] str string to search for
- * @param[in] pos position where the search starts from
+ * @param[in] pos position at which to start the search
  *
- * @return Position (as an offset from start of the string) of the first
+ * @return Position (as an offset from the start of the string) of the first
  * character of the found substring or npos if no such substring is found
  */
 template <typename CharT, typename Traits>
@@ -3039,39 +3125,32 @@ basic_string<CharT, Traits>::rfind(const basic_string &str, size_type pos) const
  * smaller than size()-1 is passed as pos, whole string will be searched.
  *
  * @param[in] s pointer to the C-style string to search for
- * @param[in] pos position where the search starts from
+ * @param[in] pos position at which to start the search
  * @param[in] count length of the substring to search for
  *
- * @return Position (as an offset from start of the string) of the first
+ * @return Position (as an offset from the start of the string) of the first
  * character of the found substring or npos if no such substring is found. If
- * searching for an empty string retrurn pos, if also pos is greater than the
- * size of the string - it returns size
+ * searching for an empty string returns pos unless pos > size(), in which
+ * case returns size().
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
 basic_string<CharT, Traits>::rfind(const CharT *s, size_type pos,
 				   size_type count) const
 {
-	if (count <= size()) {
-		pos = (std::min)(size() - count, pos);
-		do {
-			if (traits_type::compare(cdata() + pos, s, count) == 0)
-				return pos;
-		} while (pos-- > 0);
-	}
-	return npos;
+	return operator basic_string_view<CharT, Traits>().rfind(s, pos, count);
 }
 
 /**
  * Finds the last substring equal to the C-style string pointed to by s.
- * The length of the string is determined by the first null character
+ * The length of the string is determined by the first null character.
  * If npos or any value not smaller than size()-1 is passed as pos, whole string
  * will be searched.
  *
  * @param[in] s pointer to the C-style string to search for
- * @param[in] pos position where the search starts from
+ * @param[in] pos position at which to start the search
  *
- * @return Position (as an offset from start of the string) of the first
+ * @return Position (as an offset from the start of the string) of the first
  * character of the found substring or npos if no such substring is found
  */
 template <typename CharT, typename Traits>
@@ -3087,9 +3166,9 @@ basic_string<CharT, Traits>::rfind(const CharT *s, size_type pos) const
  * will be searched.
  *
  * @param[in] ch character to search for
- * @param[in] pos position where the search starts from
+ * @param[in] pos position at which to start the search
  *
- * @return Position (as an offset from start of the string) of the first
+ * @return Position (as an offset from the start of the string) of the first
  * character equal to ch or npos if no such character is found
  */
 template <typename CharT, typename Traits>
@@ -3103,10 +3182,10 @@ basic_string<CharT, Traits>::rfind(CharT ch, size_type pos) const noexcept
  * Finds the first character equal to any of the characters in str.
  *
  * @param[in] str string identifying characters to search for
- * @param[in] pos position where the search starts from
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that matches.
+ * If no matches are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3121,26 +3200,21 @@ basic_string<CharT, Traits>::find_first_of(const basic_string &str,
  * in the range [s, s+count). This range can include null characters.
  *
  * @param[in] s pointer to the C-style string identifying characters to search
- *for
- * @param[in] pos position at which to begin searching
+ * for
+ * @param[in] pos position at which to start the search
  * @param[in] count length of the C-style string identifying characters to
- *search for
+ * search for
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that matches.
+ * If no matches are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
 basic_string<CharT, Traits>::find_first_of(const CharT *s, size_type pos,
 					   size_type count) const
 {
-	size_type first_of = npos;
-	for (const CharT *c = s; c != s + count; ++c) {
-		size_type found = find(*c, pos);
-		if (found != npos && found < first_of)
-			first_of = found;
-	}
-	return first_of;
+	return operator basic_string_view<CharT, Traits>().find_first_of(s, pos,
+									 count);
 }
 
 /**
@@ -3150,10 +3224,10 @@ basic_string<CharT, Traits>::find_first_of(const CharT *s, size_type pos,
  *
  * @param[in] s pointer to the C-style string identifying characters to search
  * for
- * @param[in] pos position at which to begin searching
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that matches.
+ * If no matches are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3166,10 +3240,10 @@ basic_string<CharT, Traits>::find_first_of(const CharT *s, size_type pos) const
  * Finds the first character equal to ch
  *
  * @param[in] ch character to search for
- * @param[in] pos position at which to begin searching
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that matches.
+ * If no matches are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3183,10 +3257,10 @@ basic_string<CharT, Traits>::find_first_of(CharT ch, size_type pos) const
  * Finds the first character equal to none of the characters in str.
  *
  * @param[in] str string identifying characters to search for
- * @param[in] pos position where the search starts from
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that does not match.
+ * If no such characters are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3201,40 +3275,34 @@ basic_string<CharT, Traits>::find_first_not_of(const basic_string &str,
  * in the range [s, s+count). This range can include null characters.
  *
  * @param[in] s pointer to the C-style string identifying characters to search
- *	for
- * @param[in] pos position at which to begin searching
+ * for
+ * @param[in] pos position at which to start the search
  * @param[in] count length of the C-style string identifying characters to
- *search for
+ * search for
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that does not match.
+ * If no such characters are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
 basic_string<CharT, Traits>::find_first_not_of(const CharT *s, size_type pos,
 					       size_type count) const
 {
-	if (pos >= size())
-		return npos;
-
-	for (auto it = cbegin() + pos; it != cend(); ++it)
-		if (!traits_type::find(s, count, *it))
-			return static_cast<size_type>(
-				std::distance(cbegin(), it));
-	return npos;
+	return operator basic_string_view<CharT, Traits>().find_first_not_of(
+		s, pos, count);
 }
 
 /**
  * Finds the first character equal to none of the characters in the C-style
- *string pointed to by s. The length of the string is determined by the first
- *null character
+ * string pointed to by s. The length of the string is determined by the first
+ * null character
  *
  * @param[in] s pointer to the C-style string identifying characters to search
- *	for
- * @param[in] pos position at which to begin searching
+ * for
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that does not match.
+ * If no such characters are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3248,10 +3316,10 @@ basic_string<CharT, Traits>::find_first_not_of(const CharT *s,
  * Finds the first character not equal to ch
  *
  * @param[in] ch character to search for
- * @param[in] pos position at which to begin searching
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that does not match.
+ * If no such characters are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3265,10 +3333,10 @@ basic_string<CharT, Traits>::find_first_not_of(CharT ch, size_type pos) const
  * Finds the last character equal to any of the characters in str.
  *
  * @param[in] str string identifying characters to search for
- * @param[in] pos position where the search starts from
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the last character that matches.
+ * If no matches are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3283,35 +3351,21 @@ basic_string<CharT, Traits>::find_last_of(const basic_string &str,
  * in the range [s, s+count). This range can include null characters.
  *
  * @param[in] s pointer to the C-style string identifying characters to search
- *for
- * @param[in] pos position at which to begin searching
+ * for
+ * @param[in] pos position at which to start the search
  * @param[in] count length of the C-style string identifying characters to
- *search for
+ * search for
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the last character that matches.
+ * If no matches are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
 basic_string<CharT, Traits>::find_last_of(const CharT *s, size_type pos,
 					  size_type count) const
 {
-	if (size() == 0 || count == 0)
-		return npos;
-
-	bool found = false;
-	size_type last_of = 0;
-	for (const CharT *c = s; c != s + count; ++c) {
-		size_type position = rfind(*c, pos);
-		if (position != npos) {
-			found = true;
-			if (position > last_of)
-				last_of = position;
-		}
-	}
-	if (!found)
-		return npos;
-	return last_of;
+	return operator basic_string_view<CharT, Traits>().find_last_of(s, pos,
+									count);
 }
 
 /**
@@ -3320,11 +3374,11 @@ basic_string<CharT, Traits>::find_last_of(const CharT *s, size_type pos,
  * first null character
  *
  * @param[in] s pointer to the C-style string identifying characters to search
- *	for
- * @param[in] pos position at which to begin searching
+ * for
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the last character that matches.
+ * If no matches are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3337,10 +3391,10 @@ basic_string<CharT, Traits>::find_last_of(const CharT *s, size_type pos) const
  * Finds the last character equal to ch
  *
  * @param[in] ch character to search for
- * @param[in] pos position at which to begin searching
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the last character that matches.
+ * If no matches are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3354,10 +3408,10 @@ basic_string<CharT, Traits>::find_last_of(CharT ch, size_type pos) const
  * Finds the last character equal to none of the characters in str.
  *
  * @param[in] str string identifying characters to search for
- * @param[in] pos position where the search starts from
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that does not match.
+ * If no such characters are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3372,41 +3426,34 @@ basic_string<CharT, Traits>::find_last_not_of(const basic_string &str,
  * in the range [s, s+count). This range can include null characters.
  *
  * @param[in] s pointer to the C-style string identifying characters to search
- *for
- * @param[in] pos position at which to begin searching
+ * for
+ * @param[in] pos position at which to start the search
  * @param[in] count length of the C-style string identifying characters to
- *search for
+ * search for
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that does not match.
+ * If no such characters are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
 basic_string<CharT, Traits>::find_last_not_of(const CharT *s, size_type pos,
 					      size_type count) const
 {
-	if (size() > 0) {
-		pos = (std::min)(pos, size() - 1);
-		do {
-			if (!traits_type::find(s, count, *(cdata() + pos)))
-				return pos;
-
-		} while (pos-- > 0);
-	}
-	return npos;
+	return operator basic_string_view<CharT, Traits>().find_last_not_of(
+		s, pos, count);
 }
 
 /**
  * Finds the last character equal to none of the characters in the C-style
- *string pointed to by s. The length of the string is determined by the first
- *null character
+ * string pointed to by s. The length of the string is determined by the first
+ * null character
  *
  * @param[in] s pointer to the C-style string identifying characters to search
- *	for
- * @param[in] pos position at which to begin searching
+ * for
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return Position of the first character not equal to any of the characters
+ * in the given string, or npos if no such character is found.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3420,10 +3467,10 @@ basic_string<CharT, Traits>::find_last_not_of(const CharT *s,
  * Finds the last character not equal to ch
  *
  * @param[in] ch character to search for
- * @param[in] pos position at which to begin searching
+ * @param[in] pos position at which to start the search
  *
- * @return Position of the found character or npos if no such character is
- * found.
+ * @return The position of the first character that does not match.
+ * If no such characters are found, the function returns npos.
  */
 template <typename CharT, typename Traits>
 typename basic_string<CharT, Traits>::size_type
@@ -3701,7 +3748,7 @@ basic_string<CharT, Traits>::resize(size_type count, CharT ch)
 
 	auto pop = get_pool();
 
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		if (count > sz) {
 			append(count - sz, ch);
 		} else if (is_sso_used()) {
@@ -3772,7 +3819,7 @@ basic_string<CharT, Traits>::reserve(size_type new_cap)
 	if (is_sso_used()) {
 		auto pop = get_pool();
 
-		transaction::run(pop, [&] { sso_to_large(new_cap); });
+		flat_transaction::run(pop, [&] { sso_to_large(new_cap); });
 	} else {
 		non_sso_data().reserve(new_cap + 1);
 	}
@@ -3801,7 +3848,7 @@ basic_string<CharT, Traits>::shrink_to_fit()
 	if (size() <= sso_capacity) {
 		auto pop = get_pool();
 
-		transaction::run(pop, [&] { large_to_sso(); });
+		flat_transaction::run(pop, [&] { large_to_sso(); });
 	} else {
 		non_sso_data().shrink_to_fit();
 	}
@@ -3841,7 +3888,7 @@ basic_string<CharT, Traits>::free_data()
 {
 	auto pop = get_pool();
 
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		if (is_sso_used()) {
 			add_sso_to_tx(0, get_sso_size() + 1);
 			clear();
@@ -4129,7 +4176,7 @@ void
 basic_string<CharT, Traits>::swap(basic_string &other)
 {
 	pool_base pb = get_pool();
-	transaction::run(pb, [&] {
+	flat_transaction::run(pb, [&] {
 		if (is_sso_used() && other.is_sso_used()) {
 			sso_data().swap(other.sso_data());
 			pmem::obj::swap(sso._size, other.sso._size);

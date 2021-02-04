@@ -3,7 +3,6 @@
 !.gitattributes
 !.github/
 !.clang-format
-!.travis.yml
 !.mailmap
 !.version
 build/
@@ -11,4 +10,3 @@ build/
 *.swp
 ~*
 tags
-include/libpmemobj++/version.hpp

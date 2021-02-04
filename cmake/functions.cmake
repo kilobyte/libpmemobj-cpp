@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-# Copyright 2018-2020, Intel Corporation
+# Copyright 2018-2021, Intel Corporation
 
 #
 # functions.cmake - helper functions for CMakeLists.txt
@@ -68,40 +68,40 @@ function(add_cppstyle name)
 	endif()
 
 	if(${ARGC} EQUAL 1)
-		add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/cppstyle-${name}-status
+		add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/cppstyle-${name}-status
 			DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 				${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
 			COMMAND ${PERL_EXECUTABLE}
-				${CMAKE_SOURCE_DIR}/utils/cppstyle
+				${LIBPMEMOBJCPP_ROOT_DIR}/utils/cppstyle
 				${CLANG_FORMAT}
 				check
 				${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 				${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
-			COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/cppstyle-${name}-status
+			COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/cppstyle-${name}-status
 			)
 
 		add_custom_target(cppformat-${name}
 			COMMAND ${PERL_EXECUTABLE}
-				${CMAKE_SOURCE_DIR}/utils/cppstyle
+				${LIBPMEMOBJCPP_ROOT_DIR}/utils/cppstyle
 				${CLANG_FORMAT}
 				format
 				${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 				${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
 			)
 	else()
-		add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/cppstyle-${name}-status
+		add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/cppstyle-${name}-status
 			DEPENDS ${ARGN}
 			COMMAND ${PERL_EXECUTABLE}
-				${CMAKE_SOURCE_DIR}/utils/cppstyle
+				${LIBPMEMOBJCPP_ROOT_DIR}/utils/cppstyle
 				${CLANG_FORMAT}
 				check
 				${ARGN}
-			COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/cppstyle-${name}-status
+			COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/cppstyle-${name}-status
 			)
 
 		add_custom_target(cppformat-${name}
 			COMMAND ${PERL_EXECUTABLE}
-				${CMAKE_SOURCE_DIR}/utils/cppstyle
+				${LIBPMEMOBJCPP_ROOT_DIR}/utils/cppstyle
 				${CLANG_FORMAT}
 				format
 				${ARGN}
@@ -109,7 +109,7 @@ function(add_cppstyle name)
 	endif()
 
 	add_custom_target(cppstyle-${name}
-			DEPENDS ${CMAKE_BINARY_DIR}/cppstyle-${name}-status)
+			DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/cppstyle-${name}-status)
 
 	add_dependencies(cppstyle cppstyle-${name})
 	add_dependencies(cppformat cppformat-${name})
@@ -119,14 +119,14 @@ endfunction()
 # of global "check-whitespace" target.
 # ${name} must be unique.
 function(add_check_whitespace name)
-	add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/check-whitespace-${name}-status
+	add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/check-whitespace-${name}-status
 		DEPENDS ${ARGN}
 		COMMAND ${PERL_EXECUTABLE}
-			${CMAKE_SOURCE_DIR}/utils/check_whitespace ${ARGN}
-		COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/check-whitespace-${name}-status)
+			${LIBPMEMOBJCPP_ROOT_DIR}/utils/check_whitespace ${ARGN}
+		COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/check-whitespace-${name}-status)
 
 	add_custom_target(check-whitespace-${name}
-			DEPENDS ${CMAKE_BINARY_DIR}/check-whitespace-${name}-status)
+			DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/check-whitespace-${name}-status)
 	add_dependencies(check-whitespace check-whitespace-${name})
 endfunction()
 
@@ -161,4 +161,63 @@ function(find_pmemcheck)
 	else()
 		message(WARNING "Valgrind pmemcheck NOT found. Pmemcheck tests will not be performed.")
 	endif()
+endfunction()
+
+# src version shows the current version, as reported by git describe
+# unless git is not available, then it's set to the recently released VERSION
+function(set_source_ver SRCVERSION)
+	# if there's version file commited, use it
+	if(EXISTS "${LIBPMEMOBJCPP_ROOT_DIR}/.version")
+		file(STRINGS ${LIBPMEMOBJCPP_ROOT_DIR}/.version FILE_VERSION)
+		set(SRCVERSION ${FILE_VERSION} PARENT_SCOPE)
+		return()
+	endif()
+
+	# otherwise take it from git
+	execute_process(COMMAND git describe
+		OUTPUT_VARIABLE GIT_VERSION
+		WORKING_DIRECTORY ${LIBPMEMOBJCPP_ROOT_DIR}
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+		ERROR_QUIET)
+	if(GIT_VERSION)
+		# 1.5-rc1-19-gb8f78a329 -> 1.5-rc1.git19.gb8f78a329
+		string(REGEX MATCHALL
+			"([0-9.]*)-rc([0-9]*)-([0-9]*)-([0-9a-g]*)"
+			MATCHES
+			${GIT_VERSION})
+		if(MATCHES)
+			set(SRCVERSION
+				"${CMAKE_MATCH_1}-rc${CMAKE_MATCH_2}.git${CMAKE_MATCH_3}.${CMAKE_MATCH_4}"
+				PARENT_SCOPE)
+			return()
+		endif()
+
+		# 1.5-19-gb8f78a329 -> 1.5-git19.gb8f78a329
+		string(REGEX MATCHALL
+			"([0-9.]*)-([0-9]*)-([0-9a-g]*)"
+			MATCHES
+			${GIT_VERSION})
+		if(MATCHES)
+			set(SRCVERSION
+				"${CMAKE_MATCH_1}-git${CMAKE_MATCH_2}.${CMAKE_MATCH_3}"
+				PARENT_SCOPE)
+			return()
+		endif()
+	else()
+		execute_process(COMMAND git log -1 --format=%h
+			OUTPUT_VARIABLE GIT_COMMIT
+			WORKING_DIRECTORY ${LIBPMEMOBJCPP_ROOT_DIR}
+			OUTPUT_STRIP_TRAILING_WHITESPACE)
+		set(SRCVERSION ${GIT_COMMIT} PARENT_SCOPE)
+
+		# CPack may complain about commit sha being a package version
+		if(NOT "${CPACK_GENERATOR}" STREQUAL "")
+			message(WARNING "It seems this is a shallow clone. SRCVERSION is set to: \"${GIT_COMMIT}\". "
+				"CPack may complain about setting it as a package version. Unshallow this repo before making a package.")
+		endif()
+		return()
+	endif()
+
+	# last chance: use version set up in the top-level CMake
+	set(SRCVERSION ${VERSION} PARENT_SCOPE)
 endfunction()

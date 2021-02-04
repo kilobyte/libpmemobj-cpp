@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-# Copyright 2018-2020, Intel Corporation
+# Copyright 2018-2021, Intel Corporation
 
 set(DIR ${PARENT_DIR}/${TEST_NAME})
 
@@ -224,7 +224,7 @@ endfunction()
 
 function(check_target name)
     if(NOT EXISTS ${name})
-        message(FATAL_ERROR "Tests were not found! If not built, run make first.")
+        message(FATAL_ERROR "Test file: \"${name}\" was not found! If test wasn't built, run make first.")
     endif()
 endfunction()
 
@@ -349,4 +349,30 @@ function(check_is_pmem filename)
         # Return value 1 means that path points to non-pmem
         message(FATAL_ERROR "${TEST_NAME} can only be run on PMEM.")
     endif()
+endfunction()
+
+function(set_libpmemobj_version_num)
+    # XXX: if you want to use it, make sure to add and use return variable
+    # set variable ${LIBPMEMOBJ_VERSION_NUM}; it can possibly be used in e.g. tests
+    if(LIBPMEMOBJ_VERSION AND LIBPMEMOBJ_VERSION MATCHES "[0-9]+[.][0-9]+.*")
+        string(REGEX REPLACE "\\+git.*" "" LIBPMEMOBJ_VERSION_SHORT ${LIBPMEMOBJ_VERSION})
+        string(REGEX REPLACE "-rc.*" "" LIBPMEMOBJ_VERSION_SHORT ${LIBPMEMOBJ_VERSION_SHORT})
+        string(REPLACE "." ";" VERSION_LIST ${LIBPMEMOBJ_VERSION_SHORT})
+        list(GET VERSION_LIST 0 LIBPMEMOBJ_VERSION_MAJOR)
+        list(GET VERSION_LIST 1 LIBPMEMOBJ_VERSION_MINOR)
+        list(LENGTH VERSION_LIST OBJ_VER_COMPS)
+        if(${OBJ_VER_COMPS} LESS 3)
+            list(APPEND VERSION_LIST "0")
+        endif()
+        list(GET VERSION_LIST 2 LIBPMEMOBJ_VERSION_PATCH)
+    else()
+        # XXX: will them skip?
+        message(WARNING "cannot detect libpmemobj version, some tests will be skipped")
+        # assume 0.0.0
+        set(LIBPMEMOBJ_VERSION_MAJOR 0)
+        set(LIBPMEMOBJ_VERSION_MINOR 0)
+        set(LIBPMEMOBJ_VERSION_PATCH 0)
+    endif()
+
+    math(EXPR LIBPMEMOBJ_VERSION_NUM "${LIBPMEMOBJ_VERSION_PATCH} + ${LIBPMEMOBJ_VERSION_MINOR} * 100 + ${LIBPMEMOBJ_VERSION_MAJOR} * 10000")
 endfunction()

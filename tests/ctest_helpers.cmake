@@ -56,6 +56,7 @@ function(find_packages)
 		message(WARNING "libunwind not found. Stack traces from tests will not be reliable")
 	endif()
 
+	# XXX: if pmreorder not supported (e.g. on Win) - print one message "tests will be skipped"
 	if(NOT WIN32)
 		if(VALGRIND_FOUND AND TESTS_PMREORDER)
 			if((NOT(PMEMCHECK_VERSION LESS 1.0)) AND PMEMCHECK_VERSION LESS 2.0)
@@ -63,7 +64,7 @@ function(find_packages)
 				get_program_version_major_minor(${PMREORDER} PMREORDER_VERSION)
 				message(STATUS "pmreorder found: ${PMREORDER}, in version: ${PMREORDER_VERSION}")
 
-				if(PMREORDER_VERSION VERSION_GREATER_EQUAL PMREORDER_REQUIRED_VERSION)
+				if(PMREORDER_VERSION EQUAL PMREORDER_REQUIRED_VERSION OR PMREORDER_VERSION GREATER PMREORDER_REQUIRED_VERSION)
 					set(PROPER_PMREORDER_VERSION 1)
 				endif()
 
@@ -79,8 +80,10 @@ function(find_packages)
 				message(WARNING "Pmemcheck must be installed in version 1.X for pmreorder to work - pmreorder tests will not be performed.")
 			endif()
 		elseif(NOT VALGRIND_FOUND AND TESTS_USE_VALGRIND)
-			message(WARNING "Valgrind not found. Valgrind tests will not be performed.")
+			message(FATAL_ERROR "Valgrind not found, but tests are enabled. To disable them set CMake option TESTS_USE_VALGRIND=OFF.")
 		endif()
+	elseif(TESTS_USE_VALGRIND)
+		message(WARNING "Valgrind tests can't be run on Windows - they will be skipped.")
 	endif()
 endfunction()
 
@@ -110,7 +113,6 @@ function(build_test name)
 	if(WIN32)
 		target_link_libraries(${name} dbghelp)
 	endif()
-	target_compile_definitions(${name} PRIVATE TESTS_LIBPMEMOBJ_VERSION=0x${LIBPMEMOBJ_VERSION_NUM})
 
 	add_dependencies(tests ${name})
 endfunction()
@@ -200,34 +202,35 @@ function(add_test_common name tracer testcase cmake_script)
 	    set(tracer none)
 	endif()
 
-	if (NOT WIN32 AND ((NOT VALGRIND_FOUND) OR (NOT TESTS_USE_VALGRIND)) AND ${tracer} IN_LIST vg_tracers)
-		# Only print "SKIPPED_*" message when option is enabled
-		if (TESTS_USE_VALGRIND)
-			skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_OF_MISSING_VALGRIND")
+	# Valgrind tests won't work on Windows
+	if(NOT WIN32 AND ${tracer} IN_LIST vg_tracers)
+		if(TESTS_USE_VALGRIND)
+			# pmemcheck is not necessarily required (because it's not always delivered with Valgrind)
+			if(${tracer} STREQUAL "pmemcheck" AND (NOT VALGRIND_PMEMCHECK_FOUND))
+				skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_OF_MISSING_PMEMCHECK")
+				return()
+			# Valgrind on the other hand is required, because we enabled Valgrind tests
+			elseif(NOT VALGRIND_FOUND)
+				message(FATAL_ERROR "Valgrind not found, but tests are enabled. To disable them set CMake option TESTS_USE_VALGRIND=OFF.")
+			endif()
+		else()
+			# TESTS_USE_VALGRIND=OFF so just don't run Valgrind tests
+			return()
 		endif()
-		return()
-	endif()
 
-	if (NOT WIN32 AND ((NOT VALGRIND_PMEMCHECK_FOUND) OR (NOT TESTS_USE_VALGRIND)) AND ${tracer} STREQUAL "pmemcheck")
-		# Only print "SKIPPED_*" message when option is enabled
-		if (TESTS_USE_VALGRIND)
-			skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_OF_MISSING_PMEMCHECK")
+		if(USE_ASAN OR USE_UBSAN)
+			skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_SANITIZER_USED")
+			return()
 		endif()
-		return()
 	endif()
 
-	if (NOT WIN32 AND (USE_ASAN OR USE_UBSAN) AND ${tracer} IN_LIST vg_tracers)
-		skip_test(${name}_${testcase}_${tracer} "SKIPPED_BECAUSE_SANITIZER_USED")
-		return()
-	endif()
-
-	# if test was not build
+	# test was not build
 	if (NOT TARGET ${name})
 		message(FATAL_ERROR "${executable} not build.")
 	endif()
 
-	# skip all valgrind tests on windows
-	if ((NOT ${tracer} STREQUAL none) AND WIN32)
+	# skip all Valgrind tests on Windows
+	if (WIN32 AND ${tracer} IN_LIST vg_tracers)
 		return()
 	endif()
 

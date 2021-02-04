@@ -4,6 +4,7 @@
 - [Code Style](#code-style)
 - [Submitting Pull Requests](#submitting-pull-requests)
 - [Implementing persistent containers](#implementing-persistent-containers)
+- [Configuring GitHub fork](#configuring-github-fork)
 
 # Opening New Issues
 
@@ -80,23 +81,6 @@ to use your real name (not an alias) when committing your changes to PMEMKV:
 Author: Random J Developer <random@developer.example.org>
 ```
 
-# Configuring Github fork
-
-To build and submit documentation as an automatically generated pull request,
-the repository has to be properly configured.
-
-* [Personal access token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token) for Github account has to be generated.
-  * Such personal access token has to be set in pmemkv repository's
-  [secrets](https://docs.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets)
-  as `DOC_UPDATE_GITHUB_TOKEN` variable.
-
-* `DOC_UPDATE_BOT_NAME` secret variable has to be set. In most cases it will be
-  the same as Github account name.
-
-* `DOC_REPO_OWNER` secret variable has to be set. Name of Github account,
-  which will be target to make an automatic pull request with documentation.
-  In most cases it will be the same as Github account name.
-
 # Implementing persistent containers
 
 When developing a persistent container make sure you follow the rules and steps described here.
@@ -104,7 +88,7 @@ When developing a persistent container make sure you follow the rules and steps 
 ## Steps
 1. Create container implementation
 2. Create doc_snippet/example
-3. Add TEST_CONTAINER and INSTALL_CONTAINER CMake flags for enabling/disabling the container installation and testing.
+3. Add TEST_CONTAINER CMake option for enabling/disabling container's testing.
 4. Add tests (+ if possible, enable libcxx tests in tests/external/libcxx)
 
 ## Requirements:
@@ -121,3 +105,33 @@ When developing a persistent container make sure you follow the rules and steps 
 ## Optional features:
 * for_each_ptr method for defragmentation purposes.
 * Containers with lower memory overhead (like vector) can implement some heuristic for verifying layout (like comparing pmemobj_alloc_usable_size with expected capacity).
+
+# Configuring GitHub fork
+
+To build and submit documentation as an automatically generated pull request,
+the repository has to be properly configured.
+
+* [Personal access token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token) for GitHub account has to be generated.
+  * Such personal access token has to be set in in GitHub repository's
+  [secrets](https://docs.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets)
+  as `DOC_UPDATE_GITHUB_TOKEN` variable.
+
+* `DOC_UPDATE_BOT_NAME` secret variable has to be set. In most cases it will be
+  the same as GitHub account name.
+
+* `DOC_REPO_OWNER` secret variable has to be set. Name of GitHub account,
+  which will be target to make an automatic pull request with documentation.
+  In most cases it will be the same as GitHub account name.
+
+To enable automatic images pushing to GitHub Container Registry, following variables:
+
+* `CONTAINER_REG` existing environment variable (defined in workflow files, in .github/ directory)
+  has to be updated to contain proper GitHub Container Registry address (to forking user's container registry),
+
+* `GH_CR_USER` secret variable has to be set up - an account (with proper permissions) to publish
+  images to the Container Registry (tab **Packages** in your GH profile/organization).
+
+* `GH_CR_PAT` secret variable also has to be set up - Personal Access Token
+  (with only read & write packages permissions), to be generated as described
+  [here](https://docs.github.com/en/free-pro-team@latest/github/authenticating-to-github/creating-a-personal-access-token#creating-a-token)
+  for selected account (user defined in above variable).

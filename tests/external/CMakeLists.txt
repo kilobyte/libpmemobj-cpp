@@ -20,8 +20,8 @@ function(add_test_expect_failure name)
 				EXCLUDE_FROM_DEFAULT_BUILD TRUE)
 
 	add_test(NAME ${name}_fail_expected
-		COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target ${name}_fail_expected
-		WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+		COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR} --target ${name}_fail_expected
+		WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 	set_tests_properties(${name}_fail_expected PROPERTIES WILL_FAIL TRUE)
 endfunction()
@@ -51,11 +51,6 @@ if (TEST_ARRAY)
 	build_test(array_max_size libcxx/array/max_size.pass.cpp)
 	add_test_generic(NAME array_max_size TRACERS none)
 
-	if (MAX_ALIGN_TYPE_EXISTS)
-		build_test(array_size_and_alignment libcxx/array/size_and_alignment.pass.cpp)
-		add_test_generic(NAME array_size_and_alignment TRACERS none)
-	endif()
-
 	build_test(array_types libcxx/array/types.pass.cpp)
 	add_test_generic(NAME array_types TRACERS none)
 
@@ -75,13 +70,19 @@ if (TEST_ARRAY)
 	add_test_generic(NAME array_initializer_list TRACERS none)
 
 	if (MAX_ALIGN_TYPE_EXISTS)
+		build_test(array_size_and_alignment libcxx/array/size_and_alignment.pass.cpp)
+		add_test_generic(NAME array_size_and_alignment TRACERS none)
+
 		build_test(array_data_const libcxx/array/array.data/data_const.pass.cpp)
 		add_test_generic(NAME array_data_const TRACERS none)
-	endif()
 
-	if (MAX_ALIGN_TYPE_EXISTS)
 		build_test(array_data libcxx/array/array.data/data.pass.cpp)
 		add_test_generic(NAME array_data TRACERS none)
+	else()
+		message(WARNING "Skipping some array tests because max align type exists")
+		skip_test("array_size_and_alignment" "SKIPPED_BECAUSE_MAX_ALIGN_TYPE_EXISTS")
+		skip_test("array_data_const" "SKIPPED_BECAUSE_MAX_ALIGN_TYPE_EXISTS")
+		skip_test("array_data" "SKIPPED_BECAUSE_MAX_ALIGN_TYPE_EXISTS")
 	endif()
 
 	add_test_expect_failure(array_fill libcxx/array/array.fill/fill.fail.cpp)
@@ -739,6 +740,125 @@ if (TEST_STRING)
 
 	# XXX: port libcxx test basic_string/string.cons/initializer_list_assignment.pass
 	add_test_expect_failure(string_libcxx_string_view libcxx/basic_string/string.cons/string_view.fail.cpp)
+
+	build_test(string_libcxx_string_view_at libcxx/string.view/string.view.access/at.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_at TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_back libcxx/string.view/string.view.access/back.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_back TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_data libcxx/string.view/string.view.access/data.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_data TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_front libcxx/string.view/string.view.access/front.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_front TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_index libcxx/string.view/string.view.access/index.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_index TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_capacity libcxx/string.view/string.view.capacity/capacity.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_capacity TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_begin libcxx/string.view/string.view.iterators/begin.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_begin TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_end libcxx/string.view/string.view.iterators/end.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_end TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_rbegin libcxx/string.view/string.view.iterators/rbegin.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_rbegin TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_rend libcxx/string.view/string.view.iterators/rend.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_rend TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_swap libcxx/string.view/string.view.modifiers/swap.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_swap TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_remove_prefix libcxx/string.view/string.view.modifiers/remove_prefix.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_remove_prefix TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_remove_suffix libcxx/string.view/string.view.modifiers/remove_suffix.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_remove_suffix TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_substr libcxx/string.view/string.view.ops/substr.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_substr TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_copy libcxx/string.view/string.view.ops/copy.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_copy TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_compare_sv libcxx/string.view/string.view.ops/compare.sv.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_compare_sv TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_compare_size_size_sv libcxx/string.view/string.view.ops/compare.size_size_sv.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_compare_size_size_sv TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_compare_size_size_sv_size_size libcxx/string.view/string.view.ops/compare.size_size_sv_size_size.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_compare_size_size_sv_size_size TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_compare_size_size_sv_pointer_size libcxx/string.view/string.view.ops/compare.size_size_sv_pointer_size.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_compare_size_size_sv_pointer_size TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_compare_pointer libcxx/string.view/string.view.ops/compare.pointer.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_compare_pointer TRACERS none pmemcheck memcheck)
+
+	build_test(string_libcxx_string_view_compare_pointer_size libcxx/string.view/string.view.ops/compare.pointer_size.pass.cpp)
+	add_test_generic(NAME string_libcxx_string_view_compare_pointer_size TRACERS none pmemcheck memcheck)
+
+	if(MSVC_VERSION GREATER 1919)
+		build_test(string_libcxx_string_view_opeq_string_view libcxx/string.view/string.view.comparison/opeq.string_view.string_view.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opeq_string_view TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opeq_pointer libcxx/string.view/string.view.comparison/opeq.string_view.pointer.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opeq_pointer TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opeq_string libcxx/string.view/string.view.comparison/opeq.string_view.string.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opeq_string TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opge_string_view libcxx/string.view/string.view.comparison/opge.string_view.string_view.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opge_string_view TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opge_pointer libcxx/string.view/string.view.comparison/opge.string_view.pointer.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opge_pointer TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opge_string libcxx/string.view/string.view.comparison/opge.string_view.string.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opge_string TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opgt_string_view libcxx/string.view/string.view.comparison/opgt.string_view.string_view.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opgt_string_view TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opgt_pointer libcxx/string.view/string.view.comparison/opgt.string_view.pointer.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opgt_pointer TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opgt_string libcxx/string.view/string.view.comparison/opgt.string_view.string.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opgt_string TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_ople_string_view libcxx/string.view/string.view.comparison/ople.string_view.string_view.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_ople_string_view TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_ople_pointer libcxx/string.view/string.view.comparison/ople.string_view.pointer.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_ople_pointer TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_ople_string libcxx/string.view/string.view.comparison/ople.string_view.string.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_ople_string TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_oplt_string_view libcxx/string.view/string.view.comparison/oplt.string_view.string_view.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_oplt_string_view TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_oplt_pointer libcxx/string.view/string.view.comparison/oplt.string_view.pointer.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_oplt_pointer TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_oplt_string libcxx/string.view/string.view.comparison/oplt.string_view.string.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_oplt_string TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opne_string_view libcxx/string.view/string.view.comparison/opne.string_view.string_view.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opne_string_view TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opne_pointer libcxx/string.view/string.view.comparison/opne.string_view.pointer.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opne_pointer TRACERS none pmemcheck memcheck)
+
+		build_test(string_libcxx_string_view_opne_string libcxx/string.view/string.view.comparison/opne.string_view.string.pass.cpp)
+		add_test_generic(NAME string_libcxx_string_view_opne_string TRACERS none pmemcheck memcheck)
+	endif()
 endif()
 
 if(TEST_SEGMENT_VECTOR_ARRAY_EXPSIZE)

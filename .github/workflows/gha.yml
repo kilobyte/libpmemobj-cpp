@@ -1,20 +1,29 @@
 name: CPP
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  release:
+    types:
+      - created
 
 env:
   REPO:           libpmemobj-cpp
   GITHUB_REPO:    pmem/libpmemobj-cpp
-  DOCKERHUB_REPO: pmem/libpmemobj-cpp
+  CONTAINER_REG:  ghcr.io/pmem/libpmemobj-cpp
+  HOST_WORKDIR:   ${{ github.workspace }}
+  TEST_TIMEOUT:   600
+  IMG_VER:        latest
 
 jobs:
   linux:
     name: Linux
     runs-on: ubuntu-latest
     env:
-      DOCKERHUB_USER:          ${{ secrets.DOCKERHUB_USER }}
-      DOCKERHUB_PASSWORD:      ${{ secrets.DOCKERHUB_PASSWORD }}
-      HOST_WORKDIR:   /home/runner/work/libpmemobj-cpp/libpmemobj-cpp
-      WORKDIR:        utils/docker
+      # use org's Private Access Token to log in to GitHub Container Registry
+      CONTAINER_REG_USER:   ${{ secrets.GH_CR_USER }}
+      CONTAINER_REG_PASS:   ${{ secrets.GH_CR_PAT }}
+      FORCE_IMAGE_ACTION:   ${{ secrets.FORCE_IMAGE_ACTION }}
+      WORKDIR:         utils/docker
     strategy:
       matrix:
         CONFIG: ["TYPE=debug OS=fedora OS_VER=32 PUSH_IMAGE=1",
@@ -27,19 +36,34 @@ jobs:
                  "TYPE=package OS=fedora OS_VER=32",
                  "TYPE=package OS=ubuntu OS_VER=20.04"]
     steps:
+      - name: Get release version
+        if: github.event_name == 'release'
+        id: get_release_version
+        run: echo ::set-output name=VERSION::$(echo ${{ github.event.release.tag_name }} | grep -E "^[0-9]+.[0-9]+(-rc[0-9]+)?$" | cut -f 1,2 -d . | cut -f 1 -d -)
+
+      - name: Set image version and force image action for release
+        if: github.event_name == 'release' && steps.get_release_version.outputs.VERSION != ''
+        run: |
+          echo "IMG_VER=${{ steps.get_release_version.outputs.VERSION }}" >> $GITHUB_ENV
+          echo "FORCE_IMAGE_ACTION=rebuild" >> $GITHUB_ENV
+
+      - name: Set image version and force image action for stable branch
+        if: startsWith(github.ref, 'refs/heads/stable-')
+        run: |
+          echo "IMG_VER=$(echo ${GITHUB_REF#refs/heads/} | cut -d - -f 2)" >> $GITHUB_ENV
+          echo "FORCE_IMAGE_ACTION=rebuild" >> $GITHUB_ENV
+
       - name: Clone the git repo
         uses: actions/checkout@v2
         with:
-          fetch-depth: 50
+          fetch-depth: 0
 
-      - name: Pull or rebuild the image
-        run: cd $WORKDIR && ${{ matrix.CONFIG }} ./pull-or-rebuild-image.sh
+      # "pull" or "rebuild" can be passed to a secret FORCE_IMAGE_ACTION to override default action
+      - name: Pull the image or rebuild and push it
+        run: cd $WORKDIR && ${{ matrix.CONFIG }} ./pull-or-rebuild-image.sh $FORCE_IMAGE_ACTION
 
       - name: Run the build
         run: cd $WORKDIR && ${{ matrix.CONFIG }} ./build.sh
-
-      - name: Push the image
-        run: cd $WORKDIR && source ./set-vars.sh && ${{ matrix.CONFIG }} /bin/bash -c "if [[ -f ${CI_FILE_PUSH_IMAGE_TO_REPO} ]]; then images/push-image.sh $OS-$OS_VER; fi"
   doc:
     name: build and publish docs
     runs-on: ubuntu-latest
@@ -48,27 +72,22 @@ jobs:
       DOC_UPDATE_GITHUB_TOKEN:   ${{ secrets.DOC_UPDATE_GITHUB_TOKEN }}
       DOC_UPDATE_BOT_NAME:       ${{ secrets.DOC_UPDATE_BOT_NAME }}
       DOC_REPO_OWNER:            ${{ secrets.DOC_REPO_OWNER }}
-      HOST_WORKDIR:   /home/runner/work/libpmemobj-cpp/libpmemobj-cpp
       WORKDIR:        utils/docker
     if:
-      contains( 'refs/heads/master
-                refs/heads/1.10
-                refs/heads/1.9
-                refs/heads/1.8
-                refs/heads/1.7
-                refs/heads/1.6
-                refs/heads/1.5
-                ' , github.ref)
+      github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/stable-')
     strategy:
       matrix:
-        CONFIG: ["TYPE=doc OS=fedora OS_VER=31"]
+        CONFIG: ["TYPE=doc OS=fedora OS_VER=32"]
     steps:
       - name: Clone the git repo
         uses: actions/checkout@v2
-        with:
-          fetch-depth: 50
+
+      - name: Pull the image
+        run: cd $WORKDIR && ${{ matrix.CONFIG }} ./pull-or-rebuild-image.sh pull
+
       - name: Run the build
         run: cd $WORKDIR && ${{ matrix.CONFIG }} ./build.sh
+
   windows:
     name: Windows
     runs-on: windows-latest
@@ -77,18 +96,16 @@ jobs:
       VCPKG_DEFAULT_TRIPLET: x64-windows
       GENERATOR: "Visual Studio 16 2019"
       ARCH:      "x64"
-      PMDK_VERSION: "1.8"
+      PMDK_VERSION: "1.9"
       CMAKE_TOOLCHAIN_FILE: "C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
       CMAKE_INSTALL_PREFIX: "C:\\install\\libpmemobj-cpp"
-      WORKDIR:  "D:\\a\\libpmemobj-cpp\\libpmemobj-cpp\\"
       MSBUILD:  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\MSBuild\\Current\\Bin"
     strategy:
       matrix:
         CONFIG: [Debug, Release]
     steps:
       - name: Update PATH
-        run: |
-          echo "::add-path::$Env:MSBUILD"
+        run: echo "${env:MSBUILD}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Cache vcpkg packages
         uses: actions/cache@v1
@@ -107,7 +124,7 @@ jobs:
       - name: Clone the git repo
         uses: actions/checkout@v2
         with:
-          fetch-depth: 50
+          fetch-depth: 0
 
       - name: Install PMDK
         run: |
@@ -126,7 +143,6 @@ jobs:
                     -A "${env:ARCH}"
                     -DCMAKE_TOOLCHAIN_FILE="${env:CMAKE_TOOLCHAIN_FILE}"
                     -DCMAKE_INSTALL_PREFIX="${env:CMAKE_INSTALL_PREFIX}"
-                    -DLIBPMEMOBJ_VERSION="${env:PMDK_VERSION}"
                     -DTESTS_USE_FORCED_PMEM=ON
                     -DTESTS_TBB=ON
                     -DDEVELOPER_MODE=ON
@@ -136,7 +152,7 @@ jobs:
 
       - name: Tests
         working-directory: build
-        run: ctest -C ${{ matrix.CONFIG }} --output-on-failure --timeout 540
+        run: ctest -C ${{ matrix.CONFIG }} --output-on-failure --timeout "${env:TEST_TIMEOUT}"
 
       - name: Install
         working-directory: build

@@ -333,7 +333,7 @@ struct hash_map_node {
 
 /**
  * The class provides the way to access certain properties of segments
- * used by hash map
+ * used by hash map.
  */
 template <typename Bucket>
 class segment_traits {
@@ -700,7 +700,7 @@ private:
 	{
 		assert(my_seg == embedded_segments);
 		{
-			transaction::manual tx(pop);
+			flat_transaction::manual tx(pop);
 
 			size_type sz =
 				segment_size(first_block) - embedded_buckets;
@@ -720,7 +720,7 @@ private:
 				(*my_table)[s] = (base + off).raw();
 			}
 
-			transaction::commit();
+			flat_transaction::commit();
 		}
 	}
 
@@ -729,7 +729,7 @@ private:
 	{
 		block_range blocks = segment_blocks(my_seg);
 		{
-			transaction::manual tx(pop);
+			flat_transaction::manual tx(pop);
 
 			for (segment_index_t b = blocks.first;
 			     b < blocks.second; ++b) {
@@ -738,7 +738,7 @@ private:
 					block_size(b));
 			}
 
-			transaction::commit();
+			flat_transaction::commit();
 		}
 	}
 
@@ -974,7 +974,7 @@ public:
 		       static_cast<int64_t>(static_cast<size_t>(last_run_size) +
 					    on_init_size) >= 0);
 
-		transaction::run(pop, [&] {
+		flat_transaction::run(pop, [&] {
 			on_init_size += static_cast<size_t>(last_run_size);
 			tls_ptr->clear();
 		});
@@ -1038,7 +1038,7 @@ public:
 
 		if ((layout_features.compat & FEATURE_CONSISTENT_SIZE) &&
 		    tls_ptr) {
-			transaction::run(pop, [&] {
+			flat_transaction::run(pop, [&] {
 				delete_persistent<tls_t>(tls_ptr);
 				tls_ptr = nullptr;
 			});
@@ -1252,7 +1252,7 @@ public:
 		} else {
 			auto &size_diff = thread_size_diff();
 
-			pmem::obj::transaction::run(pop, [&] {
+			pmem::obj::flat_transaction::run(pop, [&] {
 				insert_new_node_internal(
 					b, new_node,
 					std::forward<Args>(args)...);
@@ -1319,14 +1319,14 @@ public:
 
 	/**
 	 * Swap hash_map_base
-	 * @throws std::transaction_error in case of PMDK transaction failed
+	 * @throw std::transaction_error in case of PMDK transaction failed
 	 */
 	void
 	internal_swap(hash_map_base<Key, T, mutex_t, scoped_t> &table)
 	{
 		pool_base p = get_pool_base();
 		{
-			transaction::manual tx(p);
+			flat_transaction::manual tx(p);
 
 			this->my_pool_uuid.swap(table.my_pool_uuid);
 
@@ -1336,8 +1336,8 @@ public:
 			 * transaction we must make sure that mask and size
 			 * changes are transactional
 			 */
-			transaction::snapshot((size_t *)&this->my_mask);
-			transaction::snapshot((size_t *)&this->my_size);
+			flat_transaction::snapshot((size_t *)&this->my_mask);
+			flat_transaction::snapshot((size_t *)&this->my_size);
 
 			this->mask() = table.mask().exchange(
 				this->mask(), std::memory_order_relaxed);
@@ -1356,7 +1356,7 @@ public:
 			     i < block_table_size; ++i)
 				this->my_table[i].swap(table.my_table[i]);
 
-			transaction::commit();
+			flat_transaction::commit();
 		}
 	}
 
@@ -1575,7 +1575,7 @@ operator!=(const hash_map_iterator<Container, M> &i,
  * Persistent memory aware implementation of Intel TBB concurrent_hash_map.
  * The implementation is based on a concurrent hash table algorithm
  * (https://arxiv.org/ftp/arxiv/papers/1509/1509.02235.pdf) where elements
- * assigned to buckets based on a hash code are calculated from a key.
+ * are assigned to buckets based on a hash code calculated from a key.
  * In addition to concurrent find, insert, and erase operations, the algorithm
  * employs resizing and on-demand per-bucket rehashing. The hash table consists
  * of an array of buckets, and each bucket consists of a list of nodes and a
@@ -1616,6 +1616,10 @@ operator!=(const hash_map_iterator<Container, M> &i,
  *
  * The typical usage example would be:
  * @snippet concurrent_hash_map/concurrent_hash_map.cpp concurrent_hash_map_ex
+ *
+ * The example of storing strings without necessity of using transactions would
+ * be:
+ * @snippet concurrent_hash_map/concurrent_hash_map_string.cpp cmap_string_ex
  */
 template <typename Key, typename T, typename Hash, typename KeyEqual,
 	  typename MutexType, typename ScopedLockType>
@@ -1906,7 +1910,7 @@ protected:
 			this, h & mask,
 			scoped_lock_traits_type::initial_rw_state(true));
 
-		pmem::obj::transaction::run(pop, [&] {
+		pmem::obj::flat_transaction::run(pop, [&] {
 			/* get full mask for new bucket */
 			mask = (mask << 1) | 1;
 			assert((mask & (mask + 1)) == 0 && (h & mask) == h);
@@ -2176,7 +2180,7 @@ public:
 			this->my_size = static_cast<size_t>(actual_size);
 
 			auto pop = get_pool_base();
-			transaction::run(pop, [&] {
+			flat_transaction::run(pop, [&] {
 				this->tls_ptr = make_persistent<tls_t>();
 				this->on_init_size =
 					static_cast<size_t>(actual_size);
@@ -2273,11 +2277,16 @@ public:
 	 * Clear hash map content
 	 * Not thread safe.
 	 *
-	 * @throws pmem::transaction_error in case of PMDK transaction failure
+	 * @throw pmem::transaction_error in case of PMDK transaction failure
 	 */
 	void clear();
 
 	/**
+	 * Destroys the concurrent_hash_map. Unlike destructor it will throw
+	 * an exception in case of any failure (e.g. not enough space for a
+	 * transactional data). If that happens, it might be necessary to free
+	 * some other data in the pool.
+	 *
 	 * Should be called before concurrent_hash_map destructor is called.
 	 * Otherwise, program can terminate if an exception occurs while freeing
 	 * memory inside dtor.
@@ -2297,7 +2306,7 @@ public:
 
 		auto pop = get_pool_base();
 
-		transaction::run(pop, [&] {
+		flat_transaction::run(pop, [&] {
 			clear();
 			this->free_tls();
 		});
@@ -2720,9 +2729,9 @@ public:
 
 		if (!result) {
 			pool_base pop = get_pool_base();
-			pmem::obj::transaction::manual tx(pop);
+			pmem::obj::flat_transaction::manual tx(pop);
 			acc->second = std::forward<M>(obj);
-			pmem::obj::transaction::commit();
+			pmem::obj::flat_transaction::commit();
 		}
 
 		return result;
@@ -2748,9 +2757,9 @@ public:
 
 		if (!result) {
 			pool_base pop = get_pool_base();
-			pmem::obj::transaction::manual tx(pop);
+			pmem::obj::flat_transaction::manual tx(pop);
 			acc->second = std::forward<M>(obj);
-			pmem::obj::transaction::commit();
+			pmem::obj::flat_transaction::commit();
 		}
 
 		return result;
@@ -2783,9 +2792,9 @@ public:
 
 		if (!result) {
 			pool_base pop = get_pool_base();
-			pmem::obj::transaction::manual tx(pop);
+			pmem::obj::flat_transaction::manual tx(pop);
 			acc->second = std::forward<M>(obj);
-			pmem::obj::transaction::commit();
+			pmem::obj::flat_transaction::commit();
 		}
 
 		return result;
@@ -2795,7 +2804,7 @@ public:
 	 * Remove element with corresponding key
 	 *
 	 * @return true if element was deleted by this call
-	 * @throws pmem::transaction_free_error in case of PMDK unable to free
+	 * @throw pmem::transaction_free_error in case of PMDK unable to free
 	 * the memory
 	 * @throw pmem::transaction_scope_error if called inside transaction
 	 */
@@ -2884,7 +2893,7 @@ public:
 	 * this function without constructing an instance of Key
 	 *
 	 * @return true if element was deleted by this call
-	 * @throws pmem::transaction_free_error in case of PMDK unable to free
+	 * @throw pmem::transaction_free_error in case of PMDK unable to free
 	 * the memory
 	 * @throw pmem::transaction_scope_error if called inside transaction
 	 */
@@ -3257,7 +3266,7 @@ search:
 
 	/* Only one thread can delete it due to write lock on the bucket
 	 */
-	transaction::run(pop, [&] {
+	flat_transaction::run(pop, [&] {
 		*p = del->next;
 		delete_node(del);
 
@@ -3331,7 +3340,7 @@ concurrent_hash_map<Key, T, Hash, KeyEqual, MutexType, ScopedLockType>::clear()
 	pool_base pop = get_pool_base();
 	{ /* transaction scope */
 
-		transaction::manual tx(pop);
+		flat_transaction::manual tx(pop);
 
 		assert(this->tls_ptr != nullptr);
 		this->tls_ptr->clear();
@@ -3353,13 +3362,13 @@ concurrent_hash_map<Key, T, Hash, KeyEqual, MutexType, ScopedLockType>::clear()
 		 * transaction we must make sure that mask and size
 		 * changes are transactional
 		 */
-		transaction::snapshot((size_t *)&this->my_mask);
-		transaction::snapshot((size_t *)&this->my_size);
+		flat_transaction::snapshot((size_t *)&this->my_mask);
+		flat_transaction::snapshot((size_t *)&this->my_size);
 
 		mask().store(embedded_buckets - 1, std::memory_order_relaxed);
 		this->my_size = 0;
 
-		transaction::commit();
+		flat_transaction::commit();
 	}
 }
 

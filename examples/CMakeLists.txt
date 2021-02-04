@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-# Copyright 2018-2020, Intel Corporation
+# Copyright 2018-2021, Intel Corporation
 
 if(MSVC_VERSION)
 	add_flag(-W2)
@@ -27,7 +27,7 @@ if(USE_UBSAN)
 endif()
 
 if(COVERAGE)
-       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -coverage")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -coverage")
 endif()
 
 add_custom_target(examples)
@@ -36,8 +36,7 @@ include_directories(${LIBPMEMOBJ_INCLUDE_DIRS} .)
 link_directories(${LIBPMEMOBJ_LIBRARY_DIRS})
 
 add_cppstyle(examples-common ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
-add_check_whitespace(examples-common ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
-add_check_whitespace(examples-cmake ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt)
+add_check_whitespace(examples-common ${CMAKE_CURRENT_SOURCE_DIR}/*.*)
 
 add_cppstyle(examples-array ${CMAKE_CURRENT_SOURCE_DIR}/array/*.*pp)
 add_check_whitespace(examples-array ${CMAKE_CURRENT_SOURCE_DIR}/array/*.*)
@@ -127,16 +126,17 @@ else()
 	set(SFML_LIBRARIES sfml-graphics sfml-window sfml-system)
 endif()
 
-if (TEST_ARRAY)
+if(TEST_ARRAY)
 	add_example(queue queue/queue.cpp)
 endif()
 
-if (TEST_VECTOR)
+if(TEST_VECTOR)
 	add_example(slab slab/slab.cpp)
 	add_example(simplekv simplekv/simplekv.cpp)
 	add_example(defrag defrag/defrag.cpp)
 	if(NOT CLANG_DESTRUCTOR_REFERENCE_BUG_PRESENT)
 		add_example(simplekv_rebuild simplekv_rebuild/simplekv_rebuild.cpp)
+		add_example(simplekv_rebuild_string simplekv_rebuild/simplekv_rebuild_string.cpp)
 	else()
 		message(WARNING "skipping simplekv_rebuild example - it requires clang >= ${CLANG_REQUIRED_BY_DESTRUCTOR_REFERENCE_BUG}")
 	endif()
@@ -144,13 +144,14 @@ else()
 	message(WARNING "skipping defrag example - it requires vector enabled")
 endif()
 
-if (TEST_STRING)
+if(TEST_STRING)
 	add_example(string string/string.cpp)
 endif()
 
-if (TEST_RADIX_TREE)
+if(TEST_RADIX_TREE)
 	add_example(radix_tree_dot radix_tree/radix_tree_dot.cpp)
 	add_example(radix_tree_basic radix_tree/radix_tree_basic.cpp)
+	add_example(radix_tree_complex_value radix_tree/radix_tree_complex_value.cpp)
 	add_example(radix_tree_custom_key radix_tree/radix_tree_custom_key.cpp)
 	add_example(radix_tree_inline_string radix_tree/radix_tree_inline_string.cpp)
 	add_example(radix_tree_inline_string_uint8t_key radix_tree/radix_tree_inline_string_uint8t_key.cpp)
@@ -208,6 +209,8 @@ add_example(inline_string inline_string/inline_string.cpp)
 add_example(segment_vector segment_vector/segment_vector.cpp)
 
 add_example(concurrent_hash_map concurrent_hash_map/concurrent_hash_map.cpp)
+
+add_example(concurrent_hash_map_string concurrent_hash_map/concurrent_hash_map_string.cpp)
 
 add_example(pool pool/pool.cpp)
 
