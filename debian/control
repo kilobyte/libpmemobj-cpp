@@ -2,7 +2,7 @@ Source: libpmemobj-cpp
 Priority: optional
 Maintainer: Adam Borowski <kilobyte@angband.pl>
 Build-Depends: cmake,
-               debhelper-compat (= 12),
+               debhelper-compat (= 13),
                doxygen,
                gdb,
                graphviz,
@@ -13,7 +13,7 @@ Build-Depends: cmake,
                libunwind-dev,
                pkg-config,
                valgrind
-Standards-Version: 4.5.0
+Standards-Version: 4.5.1
 Rules-Requires-Root: no
 Section: libs
 Homepage: https://pmem.io/pmdk/cpp_obj/
