@@ -1,3 +1,12 @@
+libpmemobj-cpp (1.12~rc1-1) experimental; urgency=medium
+
+  * New upstream RC.
+  * Depend on pmdk 1.9.
+  * Enable arm64 and ppc64el.
+  * Disable test: cond_var_posix_0_helgrind
+
+ -- Adam Borowski <kilobyte@angband.pl>  Fri, 05 Feb 2021 00:02:32 +0100
+
 libpmemobj-cpp (1.11-1) unstable; urgency=medium
 
   * New upstream release.
