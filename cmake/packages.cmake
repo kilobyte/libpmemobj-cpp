@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-# Copyright 2018-2020, Intel Corporation
+# Copyright 2018-2021, Intel Corporation
 
 #
 # packages.cmake - CPack configuration for rpm and deb generation
@@ -47,7 +47,7 @@ set(CPACK_DEBIAN_PACKAGE_NAME "libpmemobj++-dev")
 set(CPACK_DEBIAN_PACKAGE_VERSION ${CPACK_PACKAGE_VERSION})
 set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE amd64)
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "libpmemobj-dev (>= ${LIBPMEMOBJ_REQUIRED_VERSION})")
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "szymon.romik@intel.com")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "igor.chorazewicz@intel.com")
 
 if("${CPACK_GENERATOR}" STREQUAL "RPM")
 	set(CPACK_PACKAGE_FILE_NAME
